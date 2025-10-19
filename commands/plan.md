@@ -1,0 +1,170 @@
+---
+description: Adaptive plan with deep context analysis
+argument-hint: [task-description]
+---
+
+Use Codex to analyze $ARGUMENTS and produce an adaptive execution plan.
+
+## Phase 0: Deep Context Review
+
+Before planning, **deeply analyze the task and project**:
+
+1. **Restate the task** in your own words to confirm understanding
+2. **Inspect the repository**:
+   - List relevant directories, modules, docs, dependencies
+   - Identify existing code that may be affected
+   - Check project architecture and patterns
+3. **Identify integration points**:
+   - Data models, APIs, external services
+   - Side effects, migrations, breaking changes
+4. **Surface hidden complexity**:
+   - Security implications
+   - Performance considerations
+   - Cross-module impact
+   - Testing requirements
+5. **Capture unknowns**: Assumptions that require validation
+
+⚠️ **Critical**: User descriptions may be simple but hide complexity.
+Example: "add login" → authentication system, session management, security, password handling, database schema, API endpoints, frontend integration.
+
+## Phase 1: Complexity Classification
+
+Estimate effort in tokens using context review insights:
+
+**Tier Decision**:
+- **Trivial** (<20k): Single atomic change, execute immediately
+  - Examples: Fix typo, update config value, add simple log statement
+
+- **Simple** (20-60k): Limited scope, 1-3 meaningful steps
+  - Examples: Add new API endpoint, refactor single module, write documentation
+
+- **Complex** (≥60k): Multi-component change, ambiguous requirements, or notable risk
+  - Examples: Implement authentication, migrate database, redesign architecture
+
+**Escalation Rules**:
+- If description seems simple but context reveals hidden work → escalate tier
+- If unfamiliar patterns or technologies involved → escalate tier
+- Always explain tier choice with evidence from context review
+
+⚠️ **Flag underestimation risks** when:
+- Requirements are vague
+- Multiple modules affected
+- External dependencies involved
+- Security/performance critical
+
+## Phase 2: Adaptive Plan Construction
+
+**Trivial Tasks**:
+```
+Single-step plan:
+- Step 1 [Trivial] (~Xk): [Direct action]
+Recommendation: Execute immediately with /run
+```
+
+**Simple Tasks** (1-3 steps):
+- Only essential milestones
+- Avoid unnecessary granularity
+- Each step = meaningful deliverable
+
+**Complex Tasks** (3-7 steps):
+- Comprehensive breakdown
+- Merge overlapping work
+- Flag where substeps might be needed later
+- Clear dependencies between steps
+
+**Quality Control**:
+- Validate that each step is truly necessary
+- Merge overly granular steps
+- Ensure logical sequence and dependencies
+
+## Output Format
+
+```markdown
+## 🔍 Context Analysis
+Task: [Restated understanding]
+Project Type: [Framework/language/architecture]
+Affected Modules: [List]
+Integration Points: [APIs, services, databases]
+Hidden Complexity: [Security, performance, migrations, etc.]
+Unknowns: [Assumptions to validate]
+
+## 📊 Complexity Assessment
+Tier: Trivial/Simple/Complex (~XXk tokens)
+Reasoning: [Why this tier? Evidence from context]
+Risks: [Underestimation flags or "None noted"]
+
+## 📋 Execution Plan
+
+Step N [Tier] (~Xk tokens): [Title]
+├─ Role: [Why this step matters]
+├─ Deliverable: [Concrete outcome]
+├─ Validation: [How to confirm completion]
+├─ Dependencies: [Previous steps or external requirements]
+└─ Notes: [Integrations, blockers, assumptions, risks]
+
+[Repeat for each step...]
+
+## 📈 Summary
+- Total Steps: N (Trivial: X, Simple: Y, Complex: Z)
+- Est. Tokens: XXk / 120k (YY% of budget)
+- Complexity Tier: [Overall tier]
+- Risk Level: [Low/Medium/High with explanation]
+```
+
+**Validation**:
+- Trivial: 1 step only
+- Simple: 1-3 steps only
+- Complex: 3-7 steps only
+- Total tokens < 120k
+
+## Phase 3: Persist to todo.md
+
+Create `./todo.md`:
+
+```markdown
+# TODO - [Task Name]
+
+## 🔍 Analysis
+- Complexity: [Tier] (~XXk tokens)
+- Reasoning: [Brief explanation]
+- Risks: [Key risks or "None noted"]
+
+## 📋 Steps
+- [▶️] Step 1 [Tier]: [Title] (~Xk)
+- [ ] Step 2 [Tier]: [Title] (~Xk)
+- [ ] Step 3 [Tier]: [Title] (~Xk)
+
+## 📊 Summary
+- Total: N steps (Trivial: X, Simple: Y, Complex: Z)
+- Est. tokens: XXk / 120k (YY%)
+- Created: [date]
+
+---
+💡 Next: /run (adaptive execution)
+```
+
+**For Trivial tasks**, add note:
+```
+⚡ Trivial task - planning optional, execute immediately with /run
+```
+
+## Completion Message
+
+```
+✅ Plan created with [Tier] complexity (N steps)
+📊 Estimated: XXk / 120k tokens (YY% of budget)
+🔍 Context analyzed: [key findings]
+⚠️ Risks: [any flags or "None noted"]
+📝 Saved to todo.md
+
+💡 Next: /run (adaptive execution)
+```
+
+---
+
+**Key Principles**:
+- **Context first**: Deep analysis before planning
+- **Adaptive granularity**: Match step count to actual complexity
+- **Escalate when needed**: Simple descriptions may hide complex work
+- **Quality over quantity**: Fewer, meaningful steps beat many trivial ones
+- **Flag risks early**: Better to overestimate than underestimate

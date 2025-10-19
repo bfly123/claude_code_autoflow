@@ -1,0 +1,42 @@
+# Project specific
+todo.md
+TODO.md
+*.log
+
+# Test files
+test/
+tests/
+*.test.*
+
+# Archives
+archives/
+.archives/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# User specific
+.env
+.env.local
+credentials.json
+config.local.*
+
+# Build
+dist/
+build/
+*.pyc
+__pycache__/
