@@ -1,162 +1,149 @@
 #!/bin/bash
-
-# Claude Code 渐进式任务管理系统 - 安装脚本
-# Version: 2.0
+# TriFlow Installer - Install cct CLI tool to system
 
 set -e
 
-echo "========================================"
-echo "Claude Code 渐进式任务管理系统"
-echo "Installation Script v2.0"
-echo "========================================"
-echo ""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 颜色定义
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# 检测操作系统
-detect_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        OS="linux"
-        CLAUDE_DIR="$HOME/.claude"
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        OS="mac"
-        CLAUDE_DIR="$HOME/.claude"
-    elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
-        OS="windows"
-        CLAUDE_DIR="$USERPROFILE/.claude"
-    else
-        echo -e "${RED}错误: 不支持的操作系统${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}✓${NC} 检测到操作系统: $OS"
-}
+log_info() { echo -e "${GREEN}[+]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[!]${NC} $1"; }
+log_error() { echo -e "${RED}[-]${NC} $1"; }
+log_blue() { echo -e "${BLUE}[*]${NC} $1"; }
 
-# 检查 Claude Code
-check_claude() {
-    echo ""
-    echo "检查 Claude Code..."
+# Help
+if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+    cat << EOF
+TriFlow Installer
 
-    if [ -d "$CLAUDE_DIR" ]; then
-        echo -e "${GREEN}✓${NC} 找到 Claude Code 配置目录: $CLAUDE_DIR"
-    else
-        echo -e "${YELLOW}⚠${NC}  未找到 Claude Code 配置目录"
-        echo "   是否创建? (y/n)"
-        read -r response
-        if [[ "$response" =~ ^[Yy]$ ]]; then
-            mkdir -p "$CLAUDE_DIR/commands"
-            echo -e "${GREEN}✓${NC} 已创建配置目录"
-        else
-            echo -e "${RED}✗${NC} 安装已取消"
-            exit 1
-        fi
-    fi
-}
+Usage: ./install.sh [OPTIONS]
 
-# 安装命令文件
-install_commands() {
-    echo ""
-    echo "安装命令文件..."
+This script installs the 'cct' (Claude Code TriFlow) CLI tool to your system.
+After installation, use 'cct' to manage TriFlow installations.
 
-    # 创建命令目录
-    mkdir -p "$CLAUDE_DIR/commands"
+Options:
+  -h, --help     Show this help
+  --uninstall    Remove cct from system
 
-    # 复制命令文件
-    COMMANDS=("plan.md" "expand.md" "run.md" "progress.md")
-    for cmd in "${COMMANDS[@]}"; do
-        if [ -f "commands/$cmd" ]; then
-            cp "commands/$cmd" "$CLAUDE_DIR/commands/"
-            echo -e "${GREEN}✓${NC} 已安装: /$cmd"
-        else
-            echo -e "${RED}✗${NC} 文件不存在: commands/$cmd"
-            exit 1
-        fi
-    done
-}
+After installation:
+  cct add .      Install TriFlow to current project
+  cct add all    Install TriFlow globally (~/.claude/commands)
+  cct update     Update cct and all installations
+  cct list       Show all installations
+  cct help       Show all commands
 
-# 安装全局配置（可选）
-install_global_config() {
-    echo ""
-    echo "是否安装全局 CLAUDE.md 配置? (y/n)"
-    echo "   这会将配置应用到所有项目"
-    read -r response
+EOF
+    exit 0
+fi
 
-    if [[ "$response" =~ ^[Yy]$ ]]; then
-        if [ -f "CLAUDE.md.example" ]; then
-            if [ -f "$CLAUDE_DIR/CLAUDE.md" ]; then
-                echo -e "${YELLOW}⚠${NC}  已存在 CLAUDE.md，是否覆盖? (y/n)"
-                read -r overwrite
-                if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
-                    echo -e "${YELLOW}⚠${NC}  跳过全局配置安装"
-                    return
-                fi
-            fi
-            cp "CLAUDE.md.example" "$CLAUDE_DIR/CLAUDE.md"
-            echo -e "${GREEN}✓${NC} 已安装全局配置"
-        else
-            echo -e "${YELLOW}⚠${NC}  未找到 CLAUDE.md.example"
-        fi
-    else
-        echo -e "${YELLOW}⚠${NC}  跳过全局配置安装"
-    fi
-}
+# Uninstall mode
+if [[ "$1" == "--uninstall" ]]; then
+    log_blue "Uninstalling cct..."
 
-# 验证安装
-verify_installation() {
-    echo ""
-    echo "验证安装..."
-
-    ALL_INSTALLED=true
-    COMMANDS=("plan.md" "expand.md" "run.md" "progress.md")
-
-    for cmd in "${COMMANDS[@]}"; do
-        if [ -f "$CLAUDE_DIR/commands/$cmd" ]; then
-            echo -e "${GREEN}✓${NC} ${cmd%.md}"
-        else
-            echo -e "${RED}✗${NC} ${cmd%.md}"
-            ALL_INSTALLED=false
+    # Find and remove cct binary
+    for bin_dir in "$HOME/.local/bin" "/usr/local/bin" "$HOME/bin"; do
+        if [[ -f "$bin_dir/cct" ]]; then
+            rm -f "$bin_dir/cct"
+            log_info "Removed: $bin_dir/cct"
         fi
     done
 
-    if [ "$ALL_INSTALLED" = true ]; then
-        echo ""
-        echo -e "${GREEN}========================================${NC}"
-        echo -e "${GREEN}✓ 安装成功！${NC}"
-        echo -e "${GREEN}========================================${NC}"
-        echo ""
-        echo "可用命令:"
-        echo "  /plan [任务描述]    - 创建规划"
-        echo "  /expand             - 展开Complex步骤"
-        echo "  /run [额外需求]     - 执行并审查"
-        echo "  /progress           - 查看进度"
-        echo ""
-        echo "快速开始:"
-        echo "  1. 在 Claude Code 中运行: /plan [你的任务]"
-        echo "  2. 根据提示使用 /run 或 /expand"
-        echo "  3. 记得每次 /run 后使用 /clear"
-        echo ""
-        echo "文档:"
-        echo "  - README.md  - 完整使用说明"
-        echo "  - PLAN.md    - 系统设计文档"
-        echo ""
-    else
-        echo ""
-        echo -e "${RED}✗ 安装未完成，请检查错误信息${NC}"
-        exit 1
+    # Remove config
+    if [[ -d "$HOME/.cct" ]]; then
+        rm -rf "$HOME/.cct"
+        log_info "Removed: $HOME/.cct"
     fi
-}
 
-# 主流程
-main() {
-    detect_os
-    check_claude
-    install_commands
-    install_global_config
-    verify_installation
-}
+    log_info "Done!"
+    exit 0
+fi
 
-# 运行安装
-main
+echo ""
+echo "  TriFlow Installer"
+echo "  ================="
+echo ""
+
+# Check source files
+if [[ ! -f "$SCRIPT_DIR/cct" ]]; then
+    log_error "cct script not found in $SCRIPT_DIR"
+    exit 1
+fi
+
+if [[ ! -d "$SCRIPT_DIR/.claude/skills" ]]; then
+    log_error "Skills not found in $SCRIPT_DIR/.claude/skills/"
+    exit 1
+fi
+
+# Determine installation directory
+BIN_DIR=""
+for dir in "$HOME/.local/bin" "$HOME/bin" "/usr/local/bin"; do
+    if [[ -d "$dir" ]] && [[ -w "$dir" ]]; then
+        BIN_DIR="$dir"
+        break
+    fi
+done
+
+# Create ~/.local/bin if no suitable directory found
+if [[ -z "$BIN_DIR" ]]; then
+    BIN_DIR="$HOME/.local/bin"
+    mkdir -p "$BIN_DIR"
+    log_info "Created: $BIN_DIR"
+fi
+
+# Install cct
+cp "$SCRIPT_DIR/cct" "$BIN_DIR/cct"
+chmod +x "$BIN_DIR/cct"
+log_info "Installed: $BIN_DIR/cct"
+
+# Create config directory
+CCT_HOME="$HOME/.cct"
+mkdir -p "$CCT_HOME"
+
+# Save source path
+echo "$SCRIPT_DIR" > "$CCT_HOME/source_path"
+log_info "Config: $CCT_HOME"
+
+# Check if BIN_DIR is in PATH
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    log_warn "$BIN_DIR is not in PATH"
+    echo ""
+    echo "Add this to your shell config (~/.bashrc or ~/.zshrc):"
+    echo ""
+    echo "  export PATH=\"\$PATH:$BIN_DIR\""
+    echo ""
+    echo "Then run: source ~/.bashrc (or ~/.zshrc)"
+    echo ""
+fi
+
+# Create wrapper that sets CCT_SOURCE
+cat > "$BIN_DIR/cct" << EOF
+#!/bin/bash
+export CCT_SOURCE="$SCRIPT_DIR"
+export CCT_HOME="\${CCT_HOME:-\$HOME/.cct}"
+exec "$SCRIPT_DIR/cct" "\$@"
+EOF
+chmod +x "$BIN_DIR/cct"
+
+echo ""
+log_info "Installation complete!"
+echo ""
+echo "Usage:"
+echo "  cct add .      Install TriFlow to current project"
+echo "  cct add all    Install TriFlow globally"
+echo "  cct update     Update cct and all installations"
+echo "  cct help       Show all commands"
+echo ""
+
+# Ask about immediate installation
+echo ""
+read -p "Install TriFlow globally now? [Y/n] " -n 1 -r
+echo ""
+if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+    "$BIN_DIR/cct" add all
+fi

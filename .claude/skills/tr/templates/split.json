@@ -1,0 +1,22 @@
+{
+  "proto": "triflow.fileops.v1",
+  "id": "TR-SPLIT",
+  "purpose": "split_step",
+  "summary": "Apply substeps and regenerate todo.md",
+  "done": ["state.json updated with substeps", "todo.md regenerated"],
+  "ops": [
+    {
+      "op": "triflow_state_apply_split",
+      "stepIndex": "{{stepIndex}}",
+      "substeps": "{{substeps}}"
+    },
+    { "op": "run", "cmd": "python3 automation/autoloop.py --once", "cwd": ".", "timeoutMs": 600000 }
+  ],
+  "report": { "changedFiles": true, "diffSummary": true, "commandOutputs": "on_failure" },
+  "_meta": {
+    "placeholders": {
+      "stepIndex": "from FileOpsRES.data.state.current.stepIndex (Preflight response)",
+      "substeps": "from /dual-design output.proposedSubsteps (array of 3-7 titles)"
+    }
+  }
+}
