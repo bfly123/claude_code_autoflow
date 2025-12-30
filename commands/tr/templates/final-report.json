@@ -1,0 +1,11 @@
+{
+  "proto": "triflow.fileops.v1",
+  "id": "TR-FINAL-REPORT",
+  "purpose": "finalize_step",
+  "summary": "Write final task summary report",
+  "done": ["Report written to final/<task-name>-report.md"],
+  "ops": [
+    { "op": "write_file", "path": "final/<task-name>-report.md", "content": "<report content>" }
+  ],
+  "report": { "changedFiles": true }
+}
