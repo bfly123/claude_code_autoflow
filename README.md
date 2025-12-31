@@ -10,8 +10,10 @@
 
 `cca` sits at the top of the automation stack:
 
-```
-WezTerm  →  ccb (Claude Code Bridge)  →  cca (Claude Code AutoFlow)
+```mermaid
+graph LR
+    WezTerm --> ccb[ccb (Claude Code Bridge)]
+    ccb --> cca[cca (Claude Code AutoFlow)]
 ```
 
 - **WezTerm**: The terminal emulator backbone.
@@ -62,25 +64,10 @@ Manage your project's automation permissions via the `cca` command line tool.
 ### Slash Skills (In-Session)
 Once inside a Claude session, use these skills to drive the workflow:
 
-<details>
-<summary><strong>/tp - Task Plan</strong></summary>
-
-Creates a new task plan based on your requirements.
-```text
-/tp Implement user login feature using JWT
-```
-*Triggers: Dual-design phase -> Plan file generation -> Autoloop start*
-</details>
-
-<details>
-<summary><strong>/tr - Task Run</strong></summary>
-
-Executes the next pending step in the plan.
-```text
-/tr
-```
-*Triggers: Preflight -> Design -> Execution -> Review -> Finalization*
-</details>
+- **`/tp [task description]`** - Create a new task plan.
+  - Example: `/tp Implement user login`
+- **`/tr`** - Start automatic execution.
+  - No arguments needed.
 
 ## 📄 License
 

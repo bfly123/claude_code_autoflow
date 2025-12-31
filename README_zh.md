@@ -10,8 +10,10 @@
 
 `cca` 位于自动化技术栈的顶层：
 
-```
-WezTerm  →  ccb (Claude Code Bridge)  →  cca (Claude Code AutoFlow)
+```mermaid
+graph LR
+    WezTerm --> ccb[ccb (Claude Code Bridge)]
+    ccb --> cca[cca (Claude Code AutoFlow)]
 ```
 
 - **WezTerm**: 终端模拟器基础。
@@ -62,25 +64,10 @@ cd claude-autoflow
 ### Slash Skills (会话内)
 在 Claude 会话中，使用以下 Skills 驱动工作流：
 
-<details>
-<summary><strong>/tp - Task Plan (任务规划)</strong></summary>
-
-根据需求创建新的任务计划。
-```text
-/tp 实现基于 JWT 的用户登录功能
-```
-*触发流程：并行设计 -> 生成计划文件 -> 启动自动循环*
-</details>
-
-<details>
-<summary><strong>/tr - Task Run (任务执行)</strong></summary>
-
-执行计划中的下一个待办步骤。
-```text
-/tr
-```
-*触发流程：预检 -> 设计 -> 执行 -> 审查 -> 归档*
-</details>
+- **`/tp [任务说明]`** - 创建任务计划。
+  - 示例：`/tp 实现用户登录功能`
+- **`/tr`** - 启动自动执行。
+  - 不需要参数。
 
 ## 📄 许可协议
 
