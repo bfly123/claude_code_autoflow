@@ -420,10 +420,21 @@ def daemon(
                 last_mtime = stat.st_mtime
                 initial = _load_json(state_path)
                 if initial:
+                    cursor = Cursor.from_state(initial)
                     _atomic_write_json(
                         state_file,
-                        {"last_cursor": Cursor.from_state(initial).to_json(), "task_complete": False, "last_trigger_ts": 0},
+                        {"last_cursor": cursor.to_json(), "task_complete": False, "last_trigger_ts": 0},
                     )
+                    # Auto-trigger /tr on first state.json detection if work remains
+                    if _has_remaining_work(initial):
+                        usage = get_context_percent(repo, context_limit=context_limit)
+                        do_clear = usage > threshold
+                        _trigger(repo, do_clear=do_clear)
+                        _atomic_write_json(
+                            state_file,
+                            {"last_cursor": cursor.to_json(), "task_complete": False, "last_trigger_ts": int(time.time())},
+                        )
+                        print(json.dumps({"status": "triggered", "reason": "initial_state", "didClear": do_clear, "contextPercent": usage, "cursor": cursor.to_json()}, ensure_ascii=False), flush=True)
                 time.sleep(poll_s)
                 continue
 
