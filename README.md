@@ -10,10 +10,8 @@
 
 `cca` sits at the top of the automation stack:
 
-```mermaid
-graph LR
-    WezTerm --> ccb[ccb (Claude Code Bridge)]
-    ccb --> cca[cca (Claude Code AutoFlow)]
+```
+WezTerm  →  ccb (Claude Code Bridge)  →  cca (Claude Code AutoFlow)
 ```
 
 - **WezTerm**: The terminal emulator backbone.

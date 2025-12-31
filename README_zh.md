@@ -10,10 +10,8 @@
 
 `cca` 位于自动化技术栈的顶层：
 
-```mermaid
-graph LR
-    WezTerm --> ccb[ccb (Claude Code Bridge)]
-    ccb --> cca[cca (Claude Code AutoFlow)]
+```
+WezTerm  →  ccb (Claude Code Bridge)  →  cca (Claude Code AutoFlow)
 ```
 
 - **WezTerm**: 终端模拟器基础。
