@@ -8,6 +8,7 @@ shopt -s nullglob
 VERSION="1.0.0"
 CCT_HOME="${CCT_HOME:-$HOME/.cct}"
 CCT_SOURCE="${CCT_SOURCE:-$HOME/yunwei/claude_triflows}"
+CCT_REPO="https://github.com/bfly123/claude-triflow.git"
 INSTALLATIONS_FILE="$CCT_HOME/installations"
 
 # Colors
@@ -36,7 +37,7 @@ Commands:
   delete all     Remove system installation
   delete <path>  Remove TriFlow from specific project
 
-  update         Update cct and refresh all installations
+  update [--local]  Update cct and refresh all installations
   list           Show all installations
   uninstall      Completely remove cct from system
 
@@ -48,7 +49,8 @@ Examples:
   cct add all                # Install globally
   cct add ~/myproject        # Install to specific project
   cct delete .               # Remove from current project
-  cct update                 # Update cct and all installations
+  cct update                 # Update from GitHub and refresh all installations
+  cct update --local         # Update from local CCT_SOURCE (development)
 
 Config:
   CCT_HOME=$CCT_HOME
@@ -436,7 +438,30 @@ cmd_delete() {
 
 # Command: update
 cmd_update() {
+    local mode="${1:-}"
     log_blue "Updating cct..."
+
+    if [[ "$mode" != "--local" ]]; then
+        log_blue "Fetching latest from GitHub..."
+        command -v git >/dev/null 2>&1 || { log_error "git not found (required for 'cct update'; use 'cct update --local' as a fallback)"; exit 1; }
+
+        local repo_dir="$CCT_HOME/repo"
+        if [[ -d "$repo_dir/.git" ]]; then
+            git -C "$repo_dir" pull --ff-only
+        else
+            rm -rf "$repo_dir" 2>/dev/null || true
+            git clone --depth 1 "$CCT_REPO" "$repo_dir"
+        fi
+
+        CCT_SOURCE="$repo_dir"
+        local short_hash
+        short_hash="$(git -C "$repo_dir" rev-parse --short HEAD 2>/dev/null || true)"
+        if [[ -n "${short_hash:-}" ]]; then
+            log_info "Updated from GitHub (commit: $short_hash)"
+        else
+            log_info "Updated from GitHub"
+        fi
+    fi
 
     # Update cct itself from source
     if [[ -f "$CCT_SOURCE/cct" ]]; then
@@ -544,7 +569,7 @@ case "${1:-}" in
         cmd_delete "$2"
         ;;
     update|upgrade)
-        cmd_update
+        cmd_update "${2:-}"
         ;;
     list|ls)
         cmd_list
