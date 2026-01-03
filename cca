@@ -91,7 +91,7 @@ log_error() { printf "${RED}[-]${NC} %s\n" "$1"; }
 log_blue() { printf "${BLUE}[*]${NC} %s\n" "$1"; }
 
 AUTOFLOW_SKILLS=(tr tp dual-design file-op ask-codex review mode-switch docs)
-AUTOFLOW_COMMANDS=(tr.md tp.md dual-design.md file-op.md ask-codex.md review.md mode-switch.md)
+AUTOFLOW_COMMANDS=(tr.md tp.md dual-design.md file-op.md ask-codex.md review.md mode-switch.md auto.md)
 
 detect_platform() {
     local name
