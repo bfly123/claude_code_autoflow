@@ -51,7 +51,7 @@
 1.  **结构化输出**: 输出格式固定为 `[CCA_ROLES_V1] {JSON单行}`，便于 Claude 解析。
 2.  **配置签名**: 基于候选 roles 文件的 `mtime/size` 生成签名；签名不变则不重复输出，签名变化则重新输出。
 3.  **Roles 优先级逻辑**:
-    *   Priority: `Session` (本次会话临时指定) > `Project` (.autoflow/roles.json) > `System` (~/.config/cca/roles.json) > `Default`。
+    *   Priority: `Project` (.autoflow/roles.json) > `Default`。
 
 ### 4.2 强化 `/file-op`（Codex 侧自解析 roles）
 将“按 roles 路由 executor”的硬约束点放到 `/file-op` 的执行端（Codex）：

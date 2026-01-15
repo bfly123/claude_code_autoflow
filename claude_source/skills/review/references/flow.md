@@ -20,11 +20,10 @@ Dual review by Claude (initial assessment) and a configurable cross-review provi
 
 ### 0. Resolve Cross-Review Provider (Roles Config)
 
-Read roles config (project overrides system):
+Read roles config:
 
 1) `<repo>/.autoflow/roles.json` (if exists)
-2) `~/.config/cca/roles.json` (if exists)
-3) Fallback defaults
+2) Fallback defaults
 
 Minimal schema (P0):
 ```json

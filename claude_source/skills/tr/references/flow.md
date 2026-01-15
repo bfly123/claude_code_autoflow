@@ -13,11 +13,7 @@ Execute current step while Claude stays in plan mode and Codex performs all file
 
 ### 1.0 Ensure Plan Mode
 
-Before any preflight/execution, ensure Claude is in **plan mode**:
-
-1) Check current mode (if uncertain, assume not in plan mode)
-2) If not in plan mode → call `/mode-switch plan`
-3) Wait for the mode switch confirmation, then proceed
+Plan mode is optional. If you prefer structured exploration, you can switch via `/mode-switch plan`.
 
 ### 1. Sync Current State (Codex)
 
@@ -41,10 +37,9 @@ Interpret `FileOpsRES`:
 
 Goal: support `reviewer` / `documenter` / `designer` routing, and allow `executor` switching between `codex` and `opencode`.
 
-Config locations (project overrides system):
+Config locations:
 1) `<repo>/.autoflow/roles.json`
-2) `~/.config/cca/roles.json`
-3) Defaults
+2) Defaults
 
 Minimal schema (P0):
 ```json
@@ -54,7 +49,12 @@ Minimal schema (P0):
   "executor": "codex|opencode",
   "reviewer": "codex|gemini",
   "documenter": "codex|gemini",
-  "designer": ["claude", "codex|gemini"]
+  "designer": ["claude", "codex|gemini"],
+  "searcher": "claude|codex|opencode|gemini",
+  "web_searcher": "claude|codex|opencode|gemini",
+  "repo_searcher": "claude|codex|opencode|gemini",
+  "repo_search_enforced": false,
+  "git_manager": "claude|codex|opencode|gemini"
 }
 ```
 
@@ -65,6 +65,10 @@ Rules:
   - `reviewer = "codex"`
   - `documenter = "codex"`
   - `designer = ["claude", "codex"]`
+  - `searcher = "codex"` (legacy)
+  - `web_searcher = "codex"`
+  - `repo_searcher = "codex"` (enforced only when `repo_search_enforced=true`; covers Grep/Glob and repo-search Bash like `rg`/`git grep`)
+  - `git_manager = "codex"`
 - Executor validation:
   - Allow `executor = "codex"` or `executor = "opencode"`
   - Otherwise → fall back to `codex`

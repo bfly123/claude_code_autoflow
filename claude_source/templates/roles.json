@@ -1,10 +1,13 @@
 {
   "schemaVersion": 1,
   "enabled": true,
-  "executor": "codex",
+  "executor": "codex+opencode",
   "reviewer": "codex",
   "documenter": "gemini",
   "designer": ["claude", "codex"],
   "searcher": "codex",
+  "web_searcher": "gemini",
+  "repo_searcher": "codex",
+  "repo_search_enforced": true,
   "git_manager": "codex"
 }

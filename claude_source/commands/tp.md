@@ -1,10 +1,8 @@
 ---
 description: AutoFlow Plan - Create task plan with dual design
 argument-hint: <requirement>
-allowed-tools: Read, Glob, Grep, Bash, Task, Skill, WebSearch, WebFetch, AskUserQuestion, EnterPlanMode
+allowed-tools: Read, Glob, Grep, Bash, Task, Skill, WebSearch, WebFetch, AskUserQuestion
 ---
-
-**IMPORTANT**: First use EnterPlanMode to activate plan mode before proceeding.
 
 Execute the AutoFlow Plan workflow.
 

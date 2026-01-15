@@ -136,25 +136,6 @@ function ConvertFrom-LegacyInstallationsIfNeeded {
     Write-AllLinesUtf8NoBom -Path $INSTALLATIONS_FILE -Lines $csvLines
 }
 
-function Ensure-SystemRolesConfig {
-    $rolesPath = Join-PathSafe $CCA_HOME 'roles.json'
-    if (Test-Path -LiteralPath $rolesPath) { return }
-    $content = @"
-{
-  "schemaVersion": 1,
-  "enabled": true,
-  "executor": "codex",
-  "reviewer": "codex",
-  "documenter": "codex",
-  "designer": ["claude", "codex"]
-}
-"@
-    try {
-        Write-AllTextUtf8NoBom -Path $rolesPath -Text $content
-        Write-Info ("Created system roles config: {0}" -f $rolesPath)
-    } catch { }
-}
-
 function Ensure-ProjectRolesConfig {
     param([Parameter(Mandatory = $true)][string]$ProjectRoot)
     $targetDir = Join-PathSafe $ProjectRoot '.autoflow'
@@ -173,7 +154,27 @@ function Ensure-ProjectRolesConfig {
             Write-Warn ("Failed to install project roles config: {0}" -f $targetFile)
         }
     } else {
-        Write-Warn ("Roles template not found (skipping): {0}" -f $template)
+        $content = @"
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "executor": "codex+opencode",
+  "reviewer": "codex",
+  "documenter": "gemini",
+  "designer": ["claude", "codex"],
+  "searcher": "codex",
+  "web_searcher": "gemini",
+  "repo_searcher": "codex",
+  "repo_search_enforced": true,
+  "git_manager": "codex"
+}
+"@
+        try {
+            Write-AllTextUtf8NoBom -Path $targetFile -Text $content
+            Write-Warn ("Roles template not found; wrote defaults: {0}" -f $targetFile)
+        } catch {
+            Write-Warn ("Roles template not found; failed to write defaults: {0}" -f $targetFile)
+        }
     }
 }
 
@@ -184,18 +185,21 @@ cca - Claude Code AutoFlow CLI v$VERSION
 Usage: cca <command> [options]
 
 Commands:
-  add .          Configure Codex permissions for current project
-  add <path>     Configure Codex permissions for a project
+  add [-a] .          Install AutoFlow for current project
+  add [-a] <path>     Install AutoFlow for a project
 
   delete .       Remove Codex permissions config for current project
   delete <path>  Remove Codex permissions config for a project
 
-  update [--local]  Update cca and refresh ~/.claude/
+  update [--local] [-a]  Update cca and refresh ~/.claude/
   list           Show configured projects
   uninstall      Remove cca from system
 
   version        Show version and commit info
   help           Show this help
+
+Options:
+  -a, --dangerous-skip  Configure Codex project with approval_policy=never + sandbox_mode=full-auto
 
 Examples:
   cca add .                  # Configure current project
@@ -527,11 +531,17 @@ function Invoke-Install {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [string]$Type = 'project',
-        [string]$InstallDate = ''
+        [string]$InstallDate = '',
+        [switch]$DangerousSkip
     )
-    try { Update-CodexConfig -TargetPath $Path } catch { }
+    if ($DangerousSkip) {
+        try { Update-CodexConfig -TargetPath $Path } catch { }
+        Write-Info ("Codex dangerous-skip enabled (-a): {0}" -f $Path)
+    } else {
+        Write-Info ("Codex config unchanged (use -a for dangerous-skip): {0}" -f $Path)
+    }
     Record-Installation -Path $Path -Type $Type -InstallDate $InstallDate
-    Write-Info ("Configured Codex permissions: {0}" -f $Path)
+    Write-Info ("Recorded project install: {0}" -f $Path)
 }
 
 function Invoke-Remove {
@@ -718,29 +728,51 @@ function Ensure-ClaudeSettingsHook {
 }
 
 function Cmd-Add {
-    param([string]$Target)
-    if (-not $Target) {
-        Write-Err 'Usage: cca add <.|path>'
+    param([string[]]$Args)
+
+    if (-not $Args -or $Args.Count -eq 0) {
+        Write-Err 'Usage: cca add [-a|--dangerous-skip] <.|path>'
         exit 1
     }
 
-    if ($Target -eq '.') {
+    $dangerousSkip = $false
+    $target = $null
+    foreach ($a in $Args) {
+        if (-not $a) { continue }
+        if ($a -eq '-a' -or $a -eq '--dangerous-skip') { $dangerousSkip = $true; continue }
+        if ($a.StartsWith('-')) {
+            Write-Err ("Unknown option for add: {0}" -f $a)
+            Write-Err 'Usage: cca add [-a|--dangerous-skip] <.|path>'
+            exit 1
+        }
+        if ($target) {
+            Write-Err ("Unexpected extra argument for add: {0}" -f $a)
+            Write-Err 'Usage: cca add [-a|--dangerous-skip] <.|path>'
+            exit 1
+        }
+        $target = $a
+    }
+
+    if (-not $target) {
+        Write-Err 'Usage: cca add [-a|--dangerous-skip] <.|path>'
+        exit 1
+    }
+
+    if ($target -eq '.') {
         $p = Get-CanonicalDirectoryPath -Path '.'
         Write-Blue ("Configuring current project: {0}" -f $p)
-        Invoke-Install -Path $p -Type 'project'
-        Ensure-SystemRolesConfig
+        Invoke-Install -Path $p -Type 'project' -DangerousSkip:$dangerousSkip
         Ensure-ProjectRolesConfig -ProjectRoot $p
         Ensure-HookInstalled
         Ensure-ClaudeSettingsHook -ProjectRoot $p
     } else {
-        $candidate = Expand-UserPath -Path $Target
+        $candidate = Expand-UserPath -Path $target
         if (-not [System.IO.Path]::IsPathRooted($candidate)) {
             $candidate = Join-PathSafe (Get-Location).Path $candidate
         }
         $p = Get-CanonicalDirectoryPath -Path $candidate
         Write-Blue ("Configuring: {0}" -f $p)
-        Invoke-Install -Path $p -Type 'project'
-        Ensure-SystemRolesConfig
+        Invoke-Install -Path $p -Type 'project' -DangerousSkip:$dangerousSkip
         Ensure-ProjectRolesConfig -ProjectRoot $p
         Ensure-HookInstalled
         Ensure-ClaudeSettingsHook -ProjectRoot $p
@@ -748,6 +780,13 @@ function Cmd-Add {
 
     Write-Host ''
     Write-Info 'Done! AutoFlow is available globally in ~/.claude/ (run ./install.sh install if needed).'
+    Write-Host ''
+    Write-Blue 'Default Profile: CXGO'
+    Write-Host 'CXGO = Claude (Control) + Codex (Supervise/Gateway) + Gemini (Web research/docs) + OpenCode (Execution)'
+    Write-Host 'Defaults:'
+    Write-Host '  - executor=codex+opencode (Codex supervises OpenCode)'
+    Write-Host '  - web_searcher=gemini (WebSearch/WebFetch)'
+    Write-Host '  - repo_searcher=codex + repo_search_enforced=true (Grep/Glob/rg/git grep delegated)'
 }
 
 function Cmd-Delete {
@@ -803,10 +842,26 @@ function Cmd-List {
 }
 
 function Cmd-Update {
-    param([string]$Mode)
+    param([string[]]$Args)
+
+    $mode = ''
+    $dangerousSkip = $false
+    foreach ($a in ($Args | Where-Object { $_ -ne $null })) {
+        if (-not $a) { continue }
+        switch ($a) {
+            '--local' { $mode = '--local' }
+            '-a' { $dangerousSkip = $true }
+            '--dangerous-skip' { $dangerousSkip = $true }
+            default {
+                Write-Err ("Unknown option for update: {0}" -f $a)
+                Write-Err 'Usage: cca update [--local] [-a|--dangerous-skip]'
+                exit 1
+            }
+        }
+    }
 
     $sourceRoot = ''
-    if ($Mode -eq '--local') {
+    if ($mode -eq '--local') {
         $sourceRoot = $CCA_SOURCE
         Write-Blue ("Refreshing ~/.claude/ from local source: {0}" -f $sourceRoot)
     } else {
@@ -872,7 +927,7 @@ function Cmd-Update {
         if (-not $p) { continue }
         if (Test-Path -LiteralPath $p -PathType Container) {
             Write-Blue ("Refreshing Codex config: {0}" -f $p)
-            Invoke-Install -Path $p -Type ($r.Type) -InstallDate ($r.InstallDate)
+            Invoke-Install -Path $p -Type ($r.Type) -InstallDate ($r.InstallDate) -DangerousSkip:$dangerousSkip
             $count += 1
         } else {
             Write-Warn ("Skipping (not found): {0}" -f $p)
@@ -928,12 +983,13 @@ try {
     Ensure-InstallationsFile
 
     $command = if ($args.Count -ge 1) { $args[0] } else { '' }
-    $arg1 = if ($args.Count -ge 2) { $args[1] } else { '' }
+    $subArgs = if ($args.Count -ge 2) { $args[1..($args.Count-1)] } else { @() }
+    $arg1 = if ($subArgs.Count -ge 1) { $subArgs[0] } else { '' }
 
     switch ($command) {
-        'add' { Cmd-Add -Target $arg1 }
+        'add' { Cmd-Add -Args $subArgs }
         { $_ -in @('delete', 'remove', 'rm') } { Cmd-Delete -Target $arg1 }
-        { $_ -in @('update', 'upgrade') } { Cmd-Update -Mode $arg1 }
+        { $_ -in @('update', 'upgrade') } { Cmd-Update -Args $subArgs }
         { $_ -in @('list', 'ls') } { Cmd-List }
         'uninstall' { Cmd-Uninstall }
         { $_ -in @('version', '-v', '--version') } { Cmd-Version }

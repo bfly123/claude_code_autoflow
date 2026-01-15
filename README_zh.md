@@ -65,6 +65,16 @@ CCA 支持为不同工作分配不同模型角色。
 - **reviewer**：审查代码/逻辑（例如 `codex`、`gemini`）
 - **documenter**：生成文档（例如 `codex`、`gemini`）
 - **designer**：参与双重设计（例如 `["claude", "codex"]`）
+- **searcher**：搜索（兼容旧字段；`claude`/`codex`/`gemini`/`opencode`）
+- **web_searcher**：联网搜索（WebSearch/WebFetch；`claude`/`codex`/`gemini`/`opencode`）
+- **repo_searcher**：本地搜索（Grep/Glob + Bash 的 `rg`/`grep`/`git grep`；`claude`/`codex`/`gemini`/`opencode`；仅当 `repo_search_enforced=true` 时强制委托）
+- **repo_search_enforced**：是否强制把本地搜索委托给 `repo_searcher`（默认 `false`）
+- **git_manager**：Git 变更操作（`claude`/`codex`/`gemini`/`opencode`）
+
+`cca add` 安装的默认模板：
+- `executor=codex+opencode`，`web_searcher=gemini`，`repo_searcher=codex`，`repo_search_enforced=true`
+
+这套默认组合称为 **CXGO**：Claude（总控）+ Codex（监督/网关）+ Gemini（联网搜索/文档）+ OpenCode（执行）。
 
 ### 链式角色管理
 

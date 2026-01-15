@@ -58,6 +58,11 @@ $defaultRoles = @{
     reviewer      = 'codex'
     documenter    = 'codex'
     designer      = @('claude', 'codex')
+    searcher      = 'codex'
+    web_searcher  = 'codex'
+    repo_searcher = 'codex'
+    repo_search_enforced = $false
+    git_manager   = 'codex'
 }
 
 $repoRoot = Get-RepoRoot -Start (Get-Location).Path
@@ -66,9 +71,7 @@ if (Test-Path -LiteralPath $marker) { exit 0 }
 try { Set-Content -LiteralPath $marker -Value "ok`n" -Encoding UTF8 -Force } catch { }
 
 $candidates = @(
-    @{ Path = (Join-Path $repoRoot '.autoflow\\roles.session.json'); Label = 'session' },
-    @{ Path = (Join-Path $repoRoot '.autoflow\\roles.json'); Label = 'project' },
-    @{ Path = (Join-Path (Join-Path (Get-ConfigHome) 'cca') 'roles.json'); Label = 'system' }
+    @{ Path = (Join-Path $repoRoot '.autoflow\\roles.json'); Label = 'project' }
 )
 
 $roles = $null
@@ -86,4 +89,3 @@ if (-not $roles) { $roles = $defaultRoles }
 
 Write-Output "[cca roles] source=$source"
 Write-Output (($roles | ConvertTo-Json -Depth 16 -Compress))
-

@@ -8,9 +8,8 @@ Hard requirements:
 - Prints a compact, machine-friendly roles payload to stdout for context injection
 
 Roles priority:
-1) .autoflow/roles.session.json
-2) .autoflow/roles.json
-3) defaults
+1) .autoflow/roles.json
+2) defaults
 
 Tool blocking:
 - If Claude Code invokes Write/Edit, block and instruct delegation based on executor.
@@ -36,7 +35,14 @@ DEFAULT_ROLES: dict[str, Any] = {
     "reviewer": "codex",
     "documenter": "codex",
     "designer": ["claude", "codex"],
-    "searcher": "claude",
+    # Legacy single searcher role (kept for backward compatibility).
+    "searcher": "codex",
+    # Split search roles (optional):
+    # - web_searcher controls WebSearch/WebFetch routing
+    # - repo_searcher controls Grep/Glob routing (opt-in enforcement via repo_search_enforced)
+    "web_searcher": "codex",
+    "repo_searcher": "codex",
+    "repo_search_enforced": False,
     "git_manager": "codex",
 }
 
@@ -66,7 +72,6 @@ def _is_enabled_v1(obj: dict[str, Any]) -> bool:
 
 def _candidates(repo_root: Path) -> list[tuple[Path, str]]:
     return [
-        (repo_root / ".autoflow" / "roles.session.json", "session"),
         (repo_root / ".autoflow" / "roles.json", "project"),
     ]
 
@@ -260,6 +265,7 @@ def _is_whitelisted(target: Path, repo_root: Path) -> bool:
     allow = [
         (Path.home() / ".claude" / "plans").expanduser(),
         Path("/tmp"),
+        (repo_root / ".claude" / "plans"),
         (repo_root / ".autoflow"),
     ]
     for base in allow:
@@ -345,9 +351,68 @@ def _is_readonly_tool(name: str) -> bool:
     return n in {"read", "grep", "glob", "lsp"}
 
 
-def _is_search_tool(name: str) -> bool:
+def _is_web_search_tool(name: str) -> bool:
     n = (name or "").strip().lower()
     return n in {"websearch", "webfetch"}
+
+def _is_repo_search_tool(name: str) -> bool:
+    n = (name or "").strip().lower()
+    return n in {"grep", "glob"}
+
+def _is_bash_repo_search(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    cmd = (tokens[0] or "").strip().lower()
+    if cmd in {"rg", "ripgrep", "grep", "egrep", "fgrep"}:
+        if cmd in {"rg", "ripgrep"}:
+            # ripgrep searches the current tree by default.
+            return True
+
+        # For grep variants, avoid blocking pure stdin filters like: `... | grep foo`
+        # Heuristic: treat as repo search when it has explicit file/dir targets or recursive flags.
+        recursive = False
+        pattern_set = False
+        i = 1
+        while i < len(tokens):
+            t = tokens[i]
+            if t == "--":
+                i += 1
+                break
+            if t in {"-r", "-R", "--recursive"}:
+                recursive = True
+                i += 1
+                continue
+            if t in {"-e", "--regexp", "-f", "--file"}:
+                pattern_set = True
+                i += 2
+                continue
+            if t.startswith("-"):
+                i += 1
+                continue
+            if not pattern_set:
+                pattern_set = True
+                i += 1
+                continue
+            # After pattern, any non-flag token is treated as a path/target (skip stdin '-')
+            if t != "-":
+                return True
+            i += 1
+
+        # Handle tokens after `--`
+        while i < len(tokens):
+            t = tokens[i]
+            if not pattern_set:
+                pattern_set = True
+            else:
+                if t != "-":
+                    return True
+            i += 1
+
+        # `grep -r pattern` (no explicit path) searches CWD.
+        return bool(recursive and pattern_set)
+    if cmd == "git" and len(tokens) >= 2 and (tokens[1] or "").strip().lower() == "grep":
+        return True
+    return False
 
 
 def _role_value(roles: dict[str, Any], key: str, default: str) -> str:
@@ -359,6 +424,23 @@ def _role_value(roles: dict[str, Any], key: str, default: str) -> str:
 
 def _is_claude_role(val: str) -> bool:
     return isinstance(val, str) and val.strip().lower() == "claude"
+
+def _delegation_hint(role_value: str) -> str:
+    s = (role_value or "").strip().lower()
+    if s == "opencode":
+        return "oask"
+    if s == "gemini":
+        return "gask"
+    return "cask"
+
+def _block_role(purpose: str, role_key: str, role_value: str) -> int:
+    hint = _delegation_hint(role_value)
+    sys.stderr.write(
+        f"{purpose} blocked. Use {role_key} delegation:\n"
+        f'      - {role_key}={role_value}: {hint} "<task>"\n'
+        f"      Current {role_key}: {role_value}\n"
+    )
+    return 2
 
 
 def _block_executor(executor: str) -> int:
@@ -372,11 +454,7 @@ def _block_executor(executor: str) -> int:
 
 
 def _block_git_manager(git_manager: str) -> int:
-    hint = "cask"
-    if git_manager.strip().lower() == "opencode":
-        hint = "oask"
-    elif git_manager.strip().lower() == "gemini":
-        hint = "gask"
+    hint = _delegation_hint(git_manager)
     sys.stderr.write(
         "Git operation blocked. Use git_manager delegation:\n"
         f'      - git_manager={git_manager}: {hint} "<task>"\n'
@@ -385,15 +463,22 @@ def _block_git_manager(git_manager: str) -> int:
     return 2
 
 
-def _block_searcher(searcher: str) -> int:
-    hint = "cask"
-    s = (searcher or "").strip().lower()
-    if s == "opencode":
-        hint = "oask"
-    elif s == "gemini":
-        hint = "gask"
-    sys.stderr.write(f"Search blocked. Use searcher delegation: {hint}\n")
-    return 2
+def _web_searcher_value(roles: dict[str, Any]) -> str:
+    legacy = _role_value(roles, "searcher", DEFAULT_ROLES["searcher"])
+    return _role_value(roles, "web_searcher", legacy)
+
+
+def _repo_searcher_value(roles: dict[str, Any]) -> str:
+    legacy = _role_value(roles, "searcher", DEFAULT_ROLES["searcher"])
+    return _role_value(roles, "repo_searcher", legacy)
+
+
+def _repo_search_enforced(roles: dict[str, Any]) -> bool:
+    for k in ("repo_search_enforced", "repo_searcher_enforced"):
+        v = roles.get(k, False)
+        if v is True:
+            return True
+    return False
 
 
 def _safe_shlex_split(command: str) -> list[str]:
@@ -454,6 +539,23 @@ def _extract_cp_mv_dest(tokens: list[str]) -> Optional[str]:
     if len(args) >= 2:
         return args[-1]
     return None
+
+
+def _is_simple_bash_op(tokens: list[str], roles: dict[str, Any]) -> bool:
+    if not tokens:
+        return False
+    cmd = tokens[0]
+    allowed_ops = roles.get("simple_bash_ops", [])
+    max_targets = roles.get("simple_bash_max_targets", 2)
+    if cmd not in allowed_ops:
+        return False
+    dangerous = {"-rf", "-r", "--recursive", "-fr"}
+    if any(t in dangerous for t in tokens):
+        return False
+    args = [t for t in tokens[1:] if not t.startswith("-")]
+    if any("*" in a or "?" in a for a in args):
+        return False
+    return len(args) <= max_targets
 
 
 def _extract_rm_targets(tokens: list[str]) -> list[str]:
@@ -537,11 +639,18 @@ def main() -> int:
             )
             return 2
 
-    if _is_search_tool(tool):
+    if _is_web_search_tool(tool):
         roles, _ = _resolve_roles(repo_root)
-        searcher = _role_value(roles, "searcher", "claude")
-        if not _is_claude_role(searcher):
-            return _block_searcher(searcher)
+        web_searcher = _web_searcher_value(roles)
+        if not _is_claude_role(web_searcher):
+            return _block_role("Web search", "web_searcher", web_searcher)
+
+    if _is_repo_search_tool(tool):
+        roles, _ = _resolve_roles(repo_root)
+        if _repo_search_enforced(roles):
+            repo_searcher = _repo_searcher_value(roles)
+            if not _is_claude_role(repo_searcher):
+                return _block_role("Repo search (Grep/Glob)", "repo_searcher", repo_searcher)
 
     if _is_readonly_tool(tool):
         pass
@@ -560,11 +669,16 @@ def main() -> int:
         if _is_delegation_command(tokens):
             pass
         else:
+            roles, _source = _resolve_roles(repo_root)
+            if _repo_search_enforced(roles) and _is_bash_repo_search(tokens):
+                repo_searcher = _repo_searcher_value(roles)
+                if not _is_claude_role(repo_searcher):
+                    return _block_role("Repo search (Bash: rg/grep/git grep)", "repo_searcher", repo_searcher)
+
             subcmd = _git_subcommand(tokens)
             if _is_git_readonly_subcmd(subcmd):
                 pass
             elif _is_git_mutating_subcmd(subcmd):
-                roles, _source = _resolve_roles(repo_root)
                 gm = _role_value(roles, "git_manager", "codex")
                 if not _is_claude_role(gm):
                     return _block_git_manager(gm)
@@ -579,8 +693,9 @@ def main() -> int:
                 if dest:
                     paths.append(dest)
 
-                if paths and _bash_touches_repo(paths, Path.cwd(), repo_root):
-                    roles, _source = _resolve_roles(repo_root)
+                if _is_simple_bash_op(tokens, roles):
+                    pass  # Allow simple ops
+                elif paths and _bash_touches_repo(paths, Path.cwd(), repo_root):
                     executor = _role_value(roles, "executor", "codex")
                     if not _is_claude_role(executor):
                         return _block_executor(executor)

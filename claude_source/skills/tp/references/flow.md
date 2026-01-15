@@ -9,7 +9,7 @@ Create executable plan artifacts: `todo.md` + `state.json` + `plan_log.md`
 
 ## Architecture Note
 
-- Claude stays in **plan mode** for the entire workflow (planning + review only).
+- Plan mode is optional (recommended for structured planning + review).
 - **All file I/O (create/modify)** is executed by **Codex** via `FileOpsREQ` / `FileOpsRES`.
 - This command must never directly write files; it only prepares the plan content and delegates writes to Codex.
 

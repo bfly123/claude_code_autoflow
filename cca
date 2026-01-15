@@ -58,18 +58,21 @@ cca - Claude Code AutoFlow CLI v$VERSION
 Usage: cca <command> [options]
 
 Commands:
-  add .          Configure Codex permissions for current project
-  add <path>     Configure Codex permissions for a project
+  add [-a] .          Install AutoFlow for current project
+  add [-a] <path>     Install AutoFlow for a project
 
   delete .       Remove Codex permissions config for current project
   delete <path>  Remove Codex permissions config for a project
 
-  update [--local] [--no-reexec]  Update cca and refresh projects
+  update [--local] [--no-reexec] [-a]  Update cca and refresh projects
   list           Show configured projects
   uninstall      Remove cca from system
 
   version        Show version and commit info
   help           Show this help
+
+Options:
+  -a, --dangerous-skip  Configure Codex project with approval_policy=never + sandbox_mode=full-auto
 
 Examples:
   cca add .                  # Configure current project
@@ -93,6 +96,17 @@ log_blue() { printf "${BLUE}[*]${NC} %s\n" "$1"; }
 
 AUTOFLOW_SKILLS=(tr tp dual-design file-op ask-codex ask-gemini roles review mode-switch docs)
 AUTOFLOW_COMMANDS=(tr.md tp.md dual-design.md file-op.md ask-codex.md ask-gemini.md roles.md review.md mode-switch.md auto.md)
+
+print_cxgo_profile_hint() {
+    echo ""
+    log_blue "Default Profile: CXGO"
+    echo "CXGO = Claude (Control) + Codex (Supervise/Gateway) + Gemini (Web research/docs) + OpenCode (Execution)"
+    echo "Defaults:"
+    echo "  - executor=codex+opencode (Codex supervises OpenCode)"
+    echo "  - web_searcher=gemini (WebSearch/WebFetch)"
+    echo "  - repo_searcher=codex + repo_search_enforced=true (Grep/Glob/rg/git grep delegated)"
+    echo ""
+}
 
 detect_platform() {
     local name
@@ -408,11 +422,6 @@ detect_legacy_global() {
         fi
     done
 
-    local roles_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/cca/roles.json"
-    if [[ -f "$roles_cfg" ]]; then
-        return 0
-    fi
-
     return 1
 }
 
@@ -436,23 +445,7 @@ cleanup_legacy_global() {
         rm -f "$owned" 2>/dev/null || true
     fi
 
-    # Roles config: backup and remove (legacy system config)
-    local roles_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/cca/roles.json"
-    if [[ -f "$roles_cfg" ]]; then
-        local backup_dir
-        backup_dir="$(dirname "$roles_cfg")/backup"
-        mkdir -p "$backup_dir" 2>/dev/null || true
-        local ts
-        ts="$(date +%Y%m%d%H%M%S 2>/dev/null || echo now)"
-        if mv -f "$roles_cfg" "$backup_dir/roles.json.$ts" 2>/dev/null; then
-            log_info "Backed up legacy system roles: $backup_dir/roles.json.$ts"
-        else
-            rm -f "$roles_cfg" 2>/dev/null || true
-            log_info "Removed legacy system roles: $roles_cfg"
-        fi
-    fi
-
-    log_info "Cleaned legacy global AutoFlow config (~/.claude, ~/.config/cca)"
+    log_info "Cleaned legacy global AutoFlow config (~/.claude)"
 }
 
 ensure_project_roles_config() {
@@ -475,7 +468,22 @@ ensure_project_roles_config() {
         fi
         log_info "Installed project roles config: $target_file"
     else
-        log_warn "Roles template not found (skipping): $template"
+	        cat > "$target_file" <<'JSON'
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "executor": "codex+opencode",
+  "reviewer": "codex",
+  "documenter": "gemini",
+  "designer": ["claude", "codex"],
+  "searcher": "codex",
+  "web_searcher": "gemini",
+  "repo_searcher": "codex",
+  "repo_search_enforced": true,
+  "git_manager": "codex"
+}
+JSON
+        log_warn "Roles template not found; wrote defaults: $target_file"
     fi
 }
 
@@ -694,13 +702,23 @@ PY
 }
 
 ensure_hook_installed() {
+    # First check if hook is already available on PATH.
+    if command -v cca-roles-hook >/dev/null 2>&1; then
+        return 0
+    fi
+
     local bin_dir="$CCA_BIN_DIR"
     bin_dir="$(dirname "$(command -v cca 2>/dev/null || echo "$CCA_BIN_DIR/cca")")"
     local src="$CCA_SOURCE/cca-roles-hook"
     local dst="$bin_dir/cca-roles-hook"
 
+    # If destination exists and is executable, nothing to do.
+    if [[ -x "$dst" ]]; then
+        return 0
+    fi
+
     if [[ ! -f "$src" ]]; then
-        log_warn "Hook script not found (skipping install): $src"
+        log_warn "Hook script not found (skipping): $src"
         return 0
     fi
 
@@ -709,7 +727,7 @@ ensure_hook_installed() {
         chmod +x "$dst" 2>/dev/null || true
         log_info "Installed hook: $dst"
     else
-        log_warn "Failed to install hook to: $dst (permission denied?)"
+        log_warn "Hook not installed (run install.sh first): $dst"
     fi
 }
 
@@ -881,28 +899,35 @@ ensure_project_claude_md_policy() {
 ### Claude's Role (CRITICAL)
 **Claude is the MANAGER, not the executor.**
 - Plan and coordinate tasks
-- Check role assignments before ANY action
-- Delegate to appropriate executor (cask/oask/gask)
-- NEVER execute file modifications directly
+- Roles SSOT: `.autoflow/roles.json` (project-local only)
+- Resolve roles before ANY action
+- Route each action to the right delegate (primary mechanism)
+- Treat hook blocking as a guardrail (backup), not the primary mechanism
 
-### Role-Based Delegation
-| Role | Scope | Delegate |
-|------|-------|----------|
-| executor | Write/Edit, file-changing Bash | cask/oask |
-| searcher | WebSearch/WebFetch | cask/oask/gask |
-| git_manager | git add/commit/push/merge | cask/oask/gask |
+	### Routing Checklist (do this before every tool call)
+	1. Classify the action: `read-only` / `write-or-edit` / `search` / `git-mutate`
+	2. If it changes repo files → NEVER use `Write/Edit` directly → delegate to `executor` (prefer `/file-op`)
+3. If it’s WebSearch/WebFetch → delegate to `web_searcher` (fallback: `searcher`) unless `web_searcher=claude`
+4. If it’s repo search (Grep/Glob or Bash `rg`/`grep`/`git grep`) and `repo_search_enforced=true` → delegate to `repo_searcher` unless `repo_searcher=claude`
+5. If it’s `git add/commit/push/merge/...` → delegate to `git_manager` unless `git_manager=claude`
 
-### Commands
-- codex: cask "task"
-- opencode: oask "task"  
-- gemini: gask "task"
+	### Commands
+	- codex: cask "task"
+	- opencode: oask "task"  
+	- gemini: gask "task"
 
-### Rules
-### Rules (MANDATORY)
+	### Output Contracts (MANDATORY, to save context)
+	- Repo search delegation must return: `keyFiles`, `hits` (path:line), `nextSteps` (no raw dumps)
+	- Executor delegation must return: `changedFiles`, `diffSummary`, `commands` (exit codes), `tests`, `notes/risks`
+	- Web search delegation must return: `conclusion`, `keyPoints`, `sources` (links/keywords)
+	- Review delegation must return: `correctness`, `risks`, `edgeCases`, `testSuggestions`
+
+	### Rules (MANDATORY)
 1. If role ≠ claude, delegate IMMEDIATELY without asking user
 2. DO NOT ask user to choose execution method - auto-delegate based on role
 3. DO NOT offer options like "委托给 Codex" or "直接执行"
-4. Allowed direct: Read, Grep, Glob, .autoflow/**, /tmp/**
+4. Allowed direct: Read, Grep, Glob, .autoflow/**, /tmp/**, .claude/plans/**, ~/.claude/plans/**
+5. If the hook blocks an action, follow the hint and delegate (do not fight the hook)
 <!-- /CCA_WORKFLOW_POLICY -->
 MD
 )
@@ -947,27 +972,35 @@ MD
 	### Claude's Role (CRITICAL)
 	**Claude is the MANAGER, not the executor.**
 	- Plan and coordinate tasks
-	- Check role assignments before ANY action
-	- Delegate to appropriate executor (cask/oask/gask)
-	- NEVER execute file modifications directly
+	- Roles SSOT: `.autoflow/roles.json` (project-local only)
+	- Resolve roles before ANY action
+	- Route each action to the right delegate (primary mechanism)
+	- Treat hook blocking as a guardrail (backup), not the primary mechanism
 	
-	### Role-Based Delegation
-	| Role | Scope | Delegate |
-	|------|-------|----------|
-	| executor | Write/Edit, file-changing Bash | cask/oask |
-	| searcher | WebSearch/WebFetch | cask/oask/gask |
-	| git_manager | git add/commit/push/merge | cask/oask/gask |
+		### Routing Checklist (do this before every tool call)
+		1. Classify the action: `read-only` / `write-or-edit` / `search` / `git-mutate`
+		2. If it changes repo files → NEVER use `Write/Edit` directly → delegate to `executor` (prefer `/file-op`)
+		3. If it’s WebSearch/WebFetch → delegate to `web_searcher` (fallback: `searcher`) unless `web_searcher=claude`
+		4. If it’s repo search (Grep/Glob or Bash `rg`/`grep`/`git grep`) and `repo_search_enforced=true` → delegate to `repo_searcher` unless `repo_searcher=claude`
+		5. If it’s `git add/commit/push/merge/...` → delegate to `git_manager` unless `git_manager=claude`
 	
 	### Commands
 	- codex: cask "task"
 	- opencode: oask "task"  
 	- gemini: gask "task"
 	
-	### Rules (MANDATORY)
-	1. If role ≠ claude, delegate IMMEDIATELY without asking user
-	2. DO NOT ask user to choose execution method - auto-delegate based on role
-	3. DO NOT offer options like "委托给 Codex" or "直接执行"
-	4. Allowed direct: Read, Grep, Glob, .autoflow/**, /tmp/**
+		### Output Contracts (MANDATORY, to save context)
+		- Repo search delegation must return: `keyFiles`, `hits` (path:line), `nextSteps` (no raw dumps)
+		- Executor delegation must return: `changedFiles`, `diffSummary`, `commands` (exit codes), `tests`, `notes/risks`
+		- Web search delegation must return: `conclusion`, `keyPoints`, `sources` (links/keywords)
+		- Review delegation must return: `correctness`, `risks`, `edgeCases`, `testSuggestions`
+		
+		### Rules (MANDATORY)
+		1. If role ≠ claude, delegate IMMEDIATELY without asking user
+		2. DO NOT ask user to choose execution method - auto-delegate based on role
+		3. DO NOT offer options like "委托给 Codex" or "直接执行"
+		4. Allowed direct: Read, Grep, Glob, .autoflow/**, /tmp/**, .claude/plans/**, ~/.claude/plans/**
+		5. If the hook blocks an action, follow the hint and delegate (do not fight the hook)
 	<!-- /CCA_WORKFLOW_POLICY -->"""
 
 pattern = re.compile(r"<!-- CCA_WORKFLOW_POLICY -->.*?<!-- /CCA_WORKFLOW_POLICY -->", re.S)
@@ -1001,6 +1034,27 @@ ensure_project_agents_md() {
     local project_root="$1"
     local file="$project_root/AGENTS.md"
 
+    # Only needed when executor includes opencode (codex+opencode / opencode).
+    local roles_file="$project_root/.autoflow/roles.json"
+    local executor=""
+    if [[ -f "$roles_file" ]]; then
+        executor="$(python3 - "$roles_file" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+try:
+    obj=json.loads(p.read_text(encoding="utf-8"))
+    if isinstance(obj, dict):
+        print((obj.get("executor","") or "").lower())
+except Exception:
+    pass
+PY
+)"
+    fi
+    if [[ "$executor" != *"opencode"* ]]; then
+        return 0
+    fi
+
     if [[ -f "$file" ]]; then
         return 0
     fi
@@ -1017,14 +1071,26 @@ ensure_project_agents_md() {
         return 0
     fi
 
-    cat > "$file" <<'MD'
-## Auto-Delegation to OpenCode
+	    cat > "$file" <<'MD'
+## Codex Supervisor Policy (executor=codex+opencode)
 
-When executor=codex+opencode:
-1. Break down the task into steps
-2. Use oask to delegate to OpenCode
-3. Review results and iterate
-4. Return final result
+When `executor=codex+opencode`, Codex is the supervisor and must decide what to delegate:
+
+Delegate to OpenCode ONLY when:
+1) Repo-changing work is required (apply patches, write files, repo-mutating commands), OR
+2) The task is simple but would be token-heavy for Codex (large mechanical edits, repetitive changes, big scaffolds).
+
+Otherwise, Codex should do the work itself (read/search/analyze/plan/review) and keep outputs compact.
+
+Ask OpenCode to return:
+- `changedFiles`
+- `diffSummary`
+- `commands` (include exit codes)
+- `notes`
+
+Constraints:
+- Do NOT paste long logs; summarize and include only what is needed to verify correctness.
+- Prefer short diffs summaries; list exact file paths changed.
 MD
 
     log_info "Created project AGENTS.md: $file"
@@ -1054,28 +1120,35 @@ POLICY_BLOCK = """<!-- CCA_WORKFLOW_POLICY -->
 ### Claude's Role (CRITICAL)
 **Claude is the MANAGER, not the executor.**
 - Plan and coordinate tasks
-- Check role assignments before ANY action
-- Delegate to appropriate executor (cask/oask/gask)
-- NEVER execute file modifications directly
+- Roles SSOT: `.autoflow/roles.json` (project-local only)
+- Resolve roles before ANY action
+- Route each action to the right delegate (primary mechanism)
+- Treat hook blocking as a guardrail (backup), not the primary mechanism
 
-### Role-Based Delegation
-| Role | Scope | Delegate |
-|------|-------|----------|
-| executor | Write/Edit, file-changing Bash | cask/oask |
-| searcher | WebSearch/WebFetch | cask/oask/gask |
-| git_manager | git add/commit/push/merge | cask/oask/gask |
+### Routing Checklist (do this before every tool call)
+1. Classify the action: `read-only` / `write-or-edit` / `search` / `git-mutate`
+2. If it changes repo files → NEVER use `Write/Edit` directly → delegate to `executor` (prefer `/file-op`)
+3. If it’s WebSearch/WebFetch → delegate to `web_searcher` (fallback: `searcher`) unless `web_searcher=claude`
+4. If it’s repo search (Grep/Glob or Bash `rg`/`grep`/`git grep`) and `repo_search_enforced=true` → delegate to `repo_searcher` unless `repo_searcher=claude`
+5. If it’s `git add/commit/push/merge/...` → delegate to `git_manager` unless `git_manager=claude`
 
 ### Commands
 - codex: cask "task"
 - opencode: oask "task"  
 - gemini: gask "task"
 
-### Rules
+### Output Contracts (MANDATORY, to save context)
+- Repo search delegation must return: `keyFiles`, `hits` (path:line), `nextSteps` (no raw dumps)
+- Executor delegation must return: `changedFiles`, `diffSummary`, `commands` (exit codes), `tests`, `notes/risks`
+- Web search delegation must return: `conclusion`, `keyPoints`, `sources` (links/keywords)
+- Review delegation must return: `correctness`, `risks`, `edgeCases`, `testSuggestions`
+
 ### Rules (MANDATORY)
 1. If role ≠ claude, delegate IMMEDIATELY without asking user
 2. DO NOT ask user to choose execution method - auto-delegate based on role
 3. DO NOT offer options like "委托给 Codex" or "直接执行"
-4. Allowed direct: Read, Grep, Glob, .autoflow/**, /tmp/**
+4. Allowed direct: Read, Grep, Glob, .autoflow/**, /tmp/**, .claude/plans/**, ~/.claude/plans/**
+5. If the hook blocks an action, follow the hint and delegate (do not fight the hook)
 <!-- /CCA_WORKFLOW_POLICY -->"""
 
 POLICY_REPLACE = """<!-- CCA_WORKFLOW_POLICY -->
@@ -1084,27 +1157,35 @@ POLICY_REPLACE = """<!-- CCA_WORKFLOW_POLICY -->
 ### Claude's Role (CRITICAL)
 **Claude is the MANAGER, not the executor.**
 - Plan and coordinate tasks
-- Check role assignments before ANY action
-- Delegate to appropriate executor (cask/oask/gask)
-- NEVER execute file modifications directly
+- Roles SSOT: `.autoflow/roles.json` (project-local only)
+- Resolve roles before ANY action
+- Route each action to the right delegate (primary mechanism)
+- Treat hook blocking as a guardrail (backup), not the primary mechanism
 
-### Role-Based Delegation
-| Role | Scope | Delegate |
-|------|-------|----------|
-| executor | Write/Edit, file-changing Bash | cask/oask |
-| searcher | WebSearch/WebFetch | cask/oask/gask |
-| git_manager | git add/commit/push/merge | cask/oask/gask |
+### Routing Checklist (do this before every tool call)
+1. Classify the action: `read-only` / `write-or-edit` / `search` / `git-mutate`
+2. If it changes repo files → NEVER use `Write/Edit` directly → delegate to `executor` (prefer `/file-op`)
+3. If it’s WebSearch/WebFetch → delegate to `web_searcher` (fallback: `searcher`) unless `web_searcher=claude`
+4. If it’s repo search (Grep/Glob or Bash `rg`/`grep`/`git grep`) and `repo_search_enforced=true` → delegate to `repo_searcher` unless `repo_searcher=claude`
+5. If it’s `git add/commit/push/merge/...` → delegate to `git_manager` unless `git_manager=claude`
 
 ### Commands
 - codex: cask "task"
 - opencode: oask "task"  
 - gemini: gask "task"
 
+### Output Contracts (MANDATORY, to save context)
+- Repo search delegation must return: `keyFiles`, `hits` (path:line), `nextSteps` (no raw dumps)
+- Executor delegation must return: `changedFiles`, `diffSummary`, `commands` (exit codes), `tests`, `notes/risks`
+- Web search delegation must return: `conclusion`, `keyPoints`, `sources` (links/keywords)
+- Review delegation must return: `correctness`, `risks`, `edgeCases`, `testSuggestions`
+
 ### Rules (MANDATORY)
 1. If role ≠ claude, delegate IMMEDIATELY without asking user
 2. DO NOT ask user to choose execution method - auto-delegate based on role
 3. DO NOT offer options like "委托给 Codex" or "直接执行"
-4. Allowed direct: Read, Grep, Glob, .autoflow/**, /tmp/**
+4. Allowed direct: Read, Grep, Glob, .autoflow/**, /tmp/**, .claude/plans/**, ~/.claude/plans/**
+5. If the hook blocks an action, follow the hint and delegate (do not fight the hook)
 <!-- /CCA_WORKFLOW_POLICY -->"""
 
 
@@ -1311,12 +1392,18 @@ do_install() {
     local target="$1"
     local type="${2:-project}"
     local install_date="${3:-}"
+    local dangerous_skip="${4:-0}"
 
     [[ "$type" == "project" ]] || type="project"
-    update_codex_config "$target" || true
+    if [[ "$dangerous_skip" == "1" ]]; then
+        update_codex_config "$target" || true
+        log_info "Codex dangerous-skip enabled (-a): $target"
+    else
+        log_info "Codex config unchanged (use -a for dangerous-skip): $target"
+    fi
 
     record_installation "$target" "$type" "${install_date:-}"
-    log_info "Configured Codex permissions: $target"
+    log_info "Recorded project install: $target"
 }
 
 # Remove from a directory
@@ -1329,25 +1416,49 @@ do_remove() {
 
 # Command: add
 cmd_add() {
-    local target="$1"
+    local dangerous_skip=0
+    local target=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -a|--dangerous-skip)
+                dangerous_skip=1
+                shift
+                ;;
+            -h|--help)
+                log_error "Usage: cca add [-a|--dangerous-skip] <.|path>"
+                exit 1
+                ;;
+            -*)
+                log_error "Unknown option for add: $1"
+                log_error "Usage: cca add [-a|--dangerous-skip] <.|path>"
+                exit 1
+                ;;
+            *)
+                target="$1"
+                shift
+                ;;
+        esac
+    done
 
     if [[ -z "$target" ]]; then
-        log_error "Usage: cca add <.|path>"
+        log_error "Usage: cca add [-a|--dangerous-skip] <.|path>"
         exit 1
     fi
 
     case "$target" in
-	        ".")
-	            target="$(pwd)"
-	            log_blue "Configuring current project: $target"
-	            do_install "$target" "project"
-	            ensure_project_roles_config "$target" || true
-	            ensure_project_skills "$target" "$CCA_SOURCE" || true
-	            ensure_hook_installed || true
-	            ensure_claude_settings_hook "$target" || true
-	            ensure_project_claude_md_policy "$target" || true
-	            ensure_project_agents_md "$target" || true
-	            ;;
+		        ".")
+		            target="$(pwd)"
+		            log_blue "Configuring current project: $target"
+		            do_install "$target" "project" "" "$dangerous_skip"
+		            ensure_project_roles_config "$target" || true
+		            ensure_project_skills "$target" "$CCA_SOURCE" || true
+		            ensure_hook_installed || true
+		            ensure_claude_settings_hook "$target" || true
+		            ensure_project_claude_md_policy "$target" || true
+		            ensure_project_agents_md "$target" || true
+		            cmd_refresh "$target" || true
+		            ;;
         *)
             # Resolve path
             if [[ "$target" != /* ]]; then
@@ -1356,20 +1467,22 @@ cmd_add() {
             target="$(cd "$target" 2>/dev/null && pwd)" || {
                 log_error "Directory not found: $target"
                 exit 1
-	            }
-	            log_blue "Configuring: $target"
-	            do_install "$target" "project"
-	            ensure_project_roles_config "$target" || true
-	            ensure_project_skills "$target" "$CCA_SOURCE" || true
-	            ensure_hook_installed || true
-	            ensure_claude_settings_hook "$target" || true
-	            ensure_project_claude_md_policy "$target" || true
-	            ensure_project_agents_md "$target" || true
-	            ;;
-	    esac
+		            }
+		            log_blue "Configuring: $target"
+		            do_install "$target" "project" "" "$dangerous_skip"
+		            ensure_project_roles_config "$target" || true
+		            ensure_project_skills "$target" "$CCA_SOURCE" || true
+		            ensure_hook_installed || true
+		            ensure_claude_settings_hook "$target" || true
+		            ensure_project_claude_md_policy "$target" || true
+		            ensure_project_agents_md "$target" || true
+		            cmd_refresh "$target" || true
+		            ;;
+		    esac
 
-	    echo ""
-	    log_info "Done! AutoFlow is installed in this project (.claude/, .autoflow/)."
+		    echo ""
+		    log_info "Done! AutoFlow is installed in this project (.claude/, .autoflow/)."
+		    print_cxgo_profile_hint
 }
 
 # Command: refresh
@@ -1389,7 +1502,7 @@ cmd_refresh() {
             ;;
     esac
 
-    python3 - "$target" <<'PY'
+	    python3 - "$target" <<'PY'
 import json
 import re
 import sys
@@ -1404,7 +1517,10 @@ DEFAULT = {
     "schemaVersion": 1,
     "enabled": True,
     "executor": "codex",
-    "searcher": "claude",
+    "searcher": "codex",
+    "web_searcher": "codex",
+    "repo_searcher": "codex",
+    "repo_search_enforced": False,
     "git_manager": "codex",
 }
 
@@ -1447,6 +1563,9 @@ def executor_rule(executor_value: str) -> str:
 roles = read_roles()
 executor = str(roles.get("executor", DEFAULT["executor"]))
 searcher = str(roles.get("searcher", DEFAULT["searcher"]))
+web_searcher = str(roles.get("web_searcher", searcher))
+repo_searcher = str(roles.get("repo_searcher", searcher))
+repo_search_enforced = bool(roles.get("repo_search_enforced", False) is True)
 git_manager = str(roles.get("git_manager", DEFAULT["git_manager"]))
 
 lines: list[str] = []
@@ -1456,23 +1575,47 @@ lines.append("")
 lines.append("### Claude's Role (CRITICAL)")
 lines.append("**Claude is the MANAGER, not the executor.**")
 lines.append("- Plan and coordinate tasks")
-lines.append("- Check role assignments before ANY action")
-lines.append("- Delegate to appropriate executor (cask/oask/gask)")
-lines.append("- NEVER execute file modifications directly")
+lines.append("- Roles SSOT: `.autoflow/roles.json` (project-local only)")
+lines.append("- Resolve roles before ANY action")
+lines.append("- Route each action to the right delegate (primary mechanism)")
+lines.append("- Treat hook blocking as a guardrail (backup), not the primary mechanism")
+lines.append("")
+lines.append("### Non-Negotiables")
+lines.append("- Do NOT use Write/Edit to modify repo files (delegate instead)")
+lines.append("- Do NOT run repo-mutating Bash (redirect/tee/sed -i/rm/cp/mv into repo) (delegate instead)")
+lines.append("- If the hook blocks something, follow its hint and delegate immediately")
 lines.append("")
 lines.append("### Current Roles")
 lines.append(f"- executor: {executor} ({'direct' if delegate_hint(executor)=='direct' else 'delegate'})")
-lines.append(f"- searcher: {searcher} ({'direct' if delegate_hint(searcher)=='direct' else 'delegate'})")
+lines.append(f"- web_searcher: {web_searcher} ({'direct' if delegate_hint(web_searcher)=='direct' else 'delegate'})")
+lines.append(f"- repo_searcher: {repo_searcher} ({'direct' if delegate_hint(repo_searcher)=='direct' else 'delegate'}) (enforced={str(repo_search_enforced).lower()})")
 lines.append(f"- git_manager: {git_manager} ({'direct' if delegate_hint(git_manager)=='direct' else 'delegate'})")
 lines.append("")
-lines.append("### Delegation Rules")
-lines.append(f"- executor: {executor_rule(executor)}")
-lines.append(f"- searcher: {('can search directly' if delegate_hint(searcher)=='direct' else 'use ' + delegate_hint(searcher))}")
-lines.append(f"- git_manager: {('can run git changes directly' if delegate_hint(git_manager)=='direct' else 'use ' + delegate_hint(git_manager))}")
+lines.append("### Routing Cheatsheet (decide before every tool call)")
+lines.append(f"- write/edit files or file-changing bash → executor: {executor_rule(executor)} (prefer /file-op)")
+lines.append(f"- web search (WebSearch/WebFetch) → web_searcher: {('direct' if delegate_hint(web_searcher)=='direct' else 'use ' + delegate_hint(web_searcher))}")
+if repo_search_enforced:
+    lines.append(f"- repo search (Grep/Glob or Bash rg/grep/git grep) → repo_searcher: {('direct' if delegate_hint(repo_searcher)=='direct' else 'use ' + delegate_hint(repo_searcher))}")
+lines.append(f"- git mutate (add/commit/push/merge/rebase/reset) → git_manager: {('direct' if delegate_hint(git_manager)=='direct' else 'use ' + delegate_hint(git_manager))}")
+if repo_search_enforced and delegate_hint(repo_searcher) != "direct":
+    lines.append("- read-only is OK directly: Read, and git status/log/diff/show (Grep/Glob is delegated)")
+else:
+    lines.append("- read-only is OK directly: Read/Grep/Glob, and git status/log/diff/show")
+lines.append("")
+lines.append("### Output Contracts (MANDATORY, to save context)")
+lines.append("- Repo search delegation must return: `keyFiles`, `hits` (path:line), `nextSteps` (no raw dumps)")
+lines.append("- Executor delegation must return: `changedFiles`, `diffSummary`, `commands` (exit codes), `tests`, `notes/risks`")
+lines.append("- Web search delegation must return: `conclusion`, `keyPoints`, `sources` (links/keywords)")
+lines.append("- Review delegation must return: `correctness`, `risks`, `edgeCases`, `testSuggestions`")
 lines.append("")
 lines.append("### Allowed Direct Operations (when role=claude)")
-lines.append("- Read/Grep/Glob")
-lines.append("- Write to ~/.claude/plans/**, /tmp/**, .autoflow/**")
+if repo_search_enforced and delegate_hint(repo_searcher) != "direct":
+    lines.append("- Read")
+else:
+    lines.append("- Read/Grep/Glob")
+lines.append("- Read-only git: status/log/diff/show")
+lines.append("- Write plans to ~/.claude/plans/** or .claude/plans/**")
+lines.append("- Write to /tmp/**, .autoflow/**")
 lines.append("<!-- /CCA_WORKFLOW_POLICY -->")
 policy_block = "\n".join(lines) + "\n"
 
@@ -1497,12 +1640,20 @@ upsert_policy(claude_md, policy_block)
 need_agents = "opencode" in (executor or "").lower()
 if need_agents:
     agents_md.write_text(
-        "## Auto-Delegation to OpenCode\n\n"
-        "When executor=codex+opencode:\n"
-        "1. Break down the task into steps\n"
-        "2. Use oask to delegate to OpenCode\n"
-        "3. Review results and iterate\n"
-        "4. Return final result\n",
+        "## Codex Supervisor Policy (executor=codex+opencode)\n\n"
+        "When `executor=codex+opencode`, Codex is the supervisor and must decide what to delegate:\n\n"
+        "Delegate to OpenCode ONLY when:\n"
+        "1) Repo-changing work is required (apply patches, write files, repo-mutating commands), OR\n"
+        "2) The task is simple but would be token-heavy for Codex (large mechanical edits, repetitive changes, big scaffolds).\n\n"
+        "Otherwise, Codex should do the work itself (read/search/analyze/plan/review) and keep outputs compact.\n\n"
+        "Ask OpenCode to return:\n"
+        "- `changedFiles`\n"
+        "- `diffSummary`\n"
+        "- `commands` (include exit codes)\n"
+        "- `notes`\n\n"
+        "Constraints:\n"
+        "- Do NOT paste long logs; summarize and include only what is needed to verify correctness.\n"
+        "- Prefer short diff summaries; list exact file paths changed.\n",
         encoding="utf-8",
     )
 PY
@@ -1611,17 +1762,19 @@ cmd_update() {
     local mode=""
     local post_update=0
     local no_reexec=0
+    local dangerous_skip=0
     local arg=""
     for arg in "$@"; do
         case "$arg" in
             --local) mode="--local" ;;
             --post-update) post_update=1 ;;
             --no-reexec) no_reexec=1 ;;
+            -a|--dangerous-skip) dangerous_skip=1 ;;
             "")
                 ;;
             *)
                 log_error "Unknown option for update: $arg"
-                log_error "Usage: cca update [--local] [--no-reexec]"
+                log_error "Usage: cca update [--local] [--no-reexec] [-a|--dangerous-skip]"
                 exit 1
                 ;;
         esac
@@ -1793,7 +1946,7 @@ cmd_update() {
         [[ -z "${path:-}" ]] && continue
         if [[ -d "$path" ]]; then
             log_blue "Refreshing project config: $path"
-            do_install "$path" "${type:-project}" "${date:-}"
+            do_install "$path" "${type:-project}" "${date:-}" "$dangerous_skip"
             ensure_project_skills "$path" "$source_root" || true
             _valid_projects+=("$path")
             ((count+=1))
@@ -1939,7 +2092,7 @@ cmd_uninstall() {
 # Main
 case "${1:-}" in
     add)
-        cmd_add "$2"
+        cmd_add "${@:2}"
         ;;
     refresh)
         cmd_refresh "${2:-.}"

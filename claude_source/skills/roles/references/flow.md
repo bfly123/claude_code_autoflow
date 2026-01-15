@@ -6,10 +6,8 @@ Lightweight role management for **all tasks** (not limited to `/tp`/`/tr`).
 
 Resolve roles with this priority (highest first):
 
-1) Session override: `<repo>/.autoflow/roles.session.json`
-2) Project config: `<repo>/.autoflow/roles.json`
-3) System config: `~/.config/cca/roles.json`
-4) Defaults:
+1) Project config: `<repo>/.autoflow/roles.json`
+2) Defaults:
 ```json
 {
   "schemaVersion": 1,
@@ -17,7 +15,12 @@ Resolve roles with this priority (highest first):
   "executor": "codex",
   "reviewer": "codex",
   "documenter": "codex",
-  "designer": ["claude", "codex"]
+  "designer": ["claude", "codex"],
+  "searcher": "codex",
+  "web_searcher": "gemini",
+  "repo_searcher": "codex",
+  "repo_search_enforced": false,
+  "git_manager": "codex"
 }
 ```
 
@@ -31,7 +34,7 @@ Rules:
 
 Output:
 - Effective roles (merged)
-- Source per field (session/project/system/default)
+- Source per field (project/default)
 
 Implementation:
 - Claude does not read/modify repo files directly.
@@ -46,13 +49,18 @@ Example:
 ```
 
 Behavior:
-- Validate keys are in: `executor`, `reviewer`, `documenter`, `designer`, `enabled`
+- Validate keys are in: `executor`, `reviewer`, `documenter`, `designer`, `enabled`, `searcher`, `web_searcher`, `repo_searcher`, `repo_search_enforced`, `git_manager`
 - Validate values:
   - `executor`: `codex|opencode`
   - `reviewer`: `codex|gemini`
   - `documenter`: `codex|gemini`
   - `designer`: comma-separated list from `claude|codex|gemini`
-- Write/update `<repo>/.autoflow/roles.session.json` with a full object:
+  - `searcher`: `claude|codex|opencode|gemini` (legacy single switch)
+  - `web_searcher`: `claude|codex|opencode|gemini` (WebSearch/WebFetch)
+  - `repo_searcher`: `claude|codex|opencode|gemini` (Grep/Glob and repo-search Bash like `rg`/`grep`/`git grep`; enforced only when `repo_search_enforced=true`)
+  - `repo_search_enforced`: `true|false`
+  - `git_manager`: `claude|codex|opencode|gemini`
+- Write/update `<repo>/.autoflow/roles.json` with a full object:
   - Always include `schemaVersion: 1`
   - Always include `enabled: true` unless user sets otherwise
   - Include all role fields (resolved baseline + overrides) to keep it explicit
@@ -60,12 +68,12 @@ Behavior:
 Implementation:
 - Read current effective roles via `/file-op`.
 - Apply overrides.
-- Write session file via `/file-op` (`write_file` or `write_json`).
+- Write project roles via `/file-op` (`write_file` or `write_json`).
 
 ### `/roles clear`
 
 Behavior:
-- Remove `<repo>/.autoflow/roles.session.json` if present.
+- Remove `<repo>/.autoflow/roles.json` if present.
 - No-op if missing.
 
 Implementation:
@@ -75,10 +83,9 @@ Implementation:
 
 Behavior:
 - Ensure `<repo>/.autoflow/roles.json` exists (do not overwrite).
-- Initialize from template: `~/.claude/skills/roles/templates/roles.json`
+- Initialize from template: `.claude/skills/roles/templates/roles.json`
 
 Implementation:
 - Use `/file-op`:
   - Ensure directory `.autoflow/`
   - Write file only if not exists (if /file-op doesn't support conditional, read first then decide)
-

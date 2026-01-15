@@ -164,7 +164,7 @@ cca help               # Show help
 ### Workflow: Claude Plans, Codex Executes
 
 CCA enforces a **separation of concerns**:
-- **Claude**: Plans tasks, constructs requests (stays in plan mode)
+- **Claude**: Plans tasks, constructs requests (plan mode optional)
 - **Codex**: Executes file modifications and commands
 
 ```
@@ -219,9 +219,17 @@ Roles are configured in `<repo>/.autoflow/roles.json`:
 - `reviewer`: `codex`, `gemini`
 - `documenter`: `codex`, `gemini`
 - `designer`: `claude`, `codex`, `gemini` (use a list, e.g. `["claude","codex"]`)
-- `searcher`: `claude`, `codex`, `gemini`, `opencode`
+- `searcher`: `claude`, `codex`, `gemini`, `opencode` (legacy)
+- `web_searcher`: `claude`, `codex`, `gemini`, `opencode` (WebSearch/WebFetch)
+- `repo_searcher`: `claude`, `codex`, `gemini`, `opencode` (Grep/Glob and repo-search Bash like `rg`/`grep`/`git grep`; enforced only when `repo_search_enforced=true`)
+- `repo_search_enforced`: `true`/`false` (default: false) - Block repo-search when `repo_searcher != claude`
 - `git_manager`: `claude`, `codex`, `opencode`, `gemini`
 - `plan_mode_enforced`: `true`/`false` (default: false) - Block ExitPlanMode when true
+
+Default template installed by `cca add`:
+- `executor=codex+opencode`, `web_searcher=gemini`, `repo_searcher=codex`, `repo_search_enforced=true`
+
+This default setup is called **CXGO**: Claude (Control) + Codex (Supervise/Gateway) + Gemini (Web research/docs) + OpenCode (Execution).
 
 ### Chained Executor Mode (`codex+opencode`)
 When `executor` is set to `codex+opencode`:
