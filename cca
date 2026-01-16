@@ -5,7 +5,7 @@
 set -euo pipefail
 shopt -s nullglob
 
-VERSION="1.8.0"
+VERSION="1.8.1"
 GIT_COMMIT=""
 GIT_DATE=""
 
