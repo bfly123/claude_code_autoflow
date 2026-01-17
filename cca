@@ -5,7 +5,7 @@
 set -euo pipefail
 shopt -s nullglob
 
-VERSION="1.8.1"
+VERSION="1.9.0"
 GIT_COMMIT=""
 GIT_DATE=""
 
@@ -66,6 +66,7 @@ Commands:
 
   update [--local] [--no-reexec] [-a]  Update cca and refresh projects
   list           Show configured projects
+  roles <cmd>    Manage role presets (list/use/show)
   uninstall      Remove cca from system
 
   version        Show version and commit info
@@ -1982,6 +1983,98 @@ cmd_update() {
     fi
 }
 
+# Command: roles
+cmd_roles() {
+    local subcmd="${1:-}"
+    local templates_dir="$CCA_SOURCE/claude_source/templates"
+    local project_root
+    project_root="$(pwd)"
+    local autoflow_dir="$project_root/.autoflow"
+    local roles_file="$autoflow_dir/roles.json"
+
+    case "$subcmd" in
+        list|ls)
+            log_blue "Available role presets:"
+            echo ""
+            # List all roles-*.json files
+            local has_presets=0
+            for f in "$templates_dir"/roles*.json; do
+                [[ -f "$f" ]] || continue
+                local name
+                name="$(basename "$f" .json)"
+                # Extract preset name: roles.json -> default, roles-xxx.json -> xxx
+                if [[ "$name" == "roles" ]]; then
+                    name="default"
+                else
+                    name="${name#roles-}"
+                fi
+                # Show executor value
+                local executor
+                executor="$(python3 -c "import json; print(json.load(open('$f')).get('executor', 'codex'))" 2>/dev/null || echo "?")"
+                printf "  %-12s  executor=%s\n" "$name" "$executor"
+                has_presets=1
+            done
+            if [[ "$has_presets" -eq 0 ]]; then
+                echo "  (no presets found)"
+            fi
+            ;;
+        use)
+            local preset="${2:-}"
+            if [[ -z "$preset" ]]; then
+                log_error "Usage: cca roles use <preset>"
+                echo "Run 'cca roles list' to see available presets."
+                exit 1
+            fi
+            # Map preset name to file
+            local template_file
+            if [[ "$preset" == "default" ]]; then
+                template_file="$templates_dir/roles.json"
+            else
+                template_file="$templates_dir/roles-$preset.json"
+            fi
+            if [[ ! -f "$template_file" ]]; then
+                log_error "Preset '$preset' not found."
+                echo "Run 'cca roles list' to see available presets."
+                exit 1
+            fi
+            # Ensure .autoflow exists
+            mkdir -p "$autoflow_dir"
+            # Copy template
+            cp "$template_file" "$roles_file"
+            log_info "Switched to '$preset' preset: $roles_file"
+            # Show what was set
+            cat "$roles_file"
+            ;;
+        show)
+            if [[ ! -f "$roles_file" ]]; then
+                log_warn "No roles.json in current project."
+                echo "Run 'cca add .' first, or 'cca roles use <preset>'."
+                exit 1
+            fi
+            log_blue "Current roles config: $roles_file"
+            echo ""
+            cat "$roles_file"
+            ;;
+        ""|help)
+            cat << 'ROLES_HELP'
+cca roles - Manage role configurations
+
+Usage:
+  cca roles list          List available presets
+  cca roles use <preset>  Switch current project to a preset
+  cca roles show          Show current project's roles.json
+
+Presets are stored in: $CCA_SOURCE/claude_source/templates/roles*.json
+ROLES_HELP
+            ;;
+        *)
+            log_error "Unknown subcommand: $subcmd"
+            echo "Run 'cca roles help' for usage."
+            exit 1
+            ;;
+    esac
+}
+
 # Command: list
 cmd_list() {
     log_blue "Configured projects:"
@@ -2105,6 +2198,9 @@ case "${1:-}" in
         ;;
     list|ls)
         cmd_list
+        ;;
+    roles)
+        cmd_roles "${@:2}"
         ;;
     uninstall)
         cmd_uninstall
