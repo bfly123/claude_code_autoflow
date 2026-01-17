@@ -1730,6 +1730,7 @@ cmd_delete() {
     echo "  - $target/.claude/commands/<cca-owned commands>"
     echo "  - PreToolUse cca-roles-hook entry from $target/.claude/settings.json"
     echo "  - CCA_WORKFLOW_POLICY block from $target/CLAUDE.md"
+    echo "  - $target/AGENTS.md (if exists)"
     echo "  - Installation record from: $INSTALLATIONS_FILE"
     echo "  - Codex project config from: $HOME/.codex/config.toml"
 
@@ -1742,6 +1743,12 @@ cmd_delete() {
     remove_project_skills "$target" || true
     remove_project_hook "$target" || true
     remove_claude_md_policy "$target" || true
+
+    # Remove AGENTS.md if exists
+    if [[ -f "$target/AGENTS.md" ]]; then
+        rm -f "$target/AGENTS.md" 2>/dev/null || true
+        log_info "Removed: $target/AGENTS.md"
+    fi
 
     if [[ -d "$target/.autoflow" ]]; then
         echo ""
