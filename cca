@@ -2061,16 +2061,15 @@ cca roles - Manage role configurations
 
 Usage:
   cca roles list          List available presets
-  cca roles use <preset>  Switch current project to a preset
+  cca roles <preset>      Switch current project to a preset
   cca roles show          Show current project's roles.json
 
 Presets are stored in: $CCA_SOURCE/claude_source/templates/roles*.json
 ROLES_HELP
             ;;
         *)
-            log_error "Unknown subcommand: $subcmd"
-            echo "Run 'cca roles help' for usage."
-            exit 1
+            # Treat unknown subcommand as preset name (shortcut for 'use')
+            cmd_roles use "$subcmd"
             ;;
     esac
 }
