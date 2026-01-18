@@ -124,32 +124,45 @@ cping    # Should return "Codex connection OK"
 cca <command> [options]
 ```
 
-#### Project Configuration
+#### 1. Project Initialization (`cca add`)
+
 ```bash
-cca add .              # Enable AutoFlow for current project
-cca add ~/myproject    # Enable AutoFlow for specific path
-cca delete .           # Remove AutoFlow config from current project
-cca delete ~/myproject # Remove AutoFlow config from specific path
-cca list               # Show all configured projects
+cca add .
 ```
+**Function**: Initializes the AutoFlow environment for the current project.
+**Generated Files**:
+- **.claude/**: Contains project-specific AutoFlow skills and commands.
+- **.autoflow/**: Stores the `roles.json` role configuration file.
+- **CLAUDE.md**: Dynamically generated Prompt policy and routing rules based on role configuration.
+- **AGENTS.md**: (When using OpenCode) Contains supervision policies for Codex.
 
-Note: AutoFlow skills/commands are installed per-project under `<repo>/.claude/` by `cca add`.
+#### 2. Role Preset Switching (`cca roles`)
 
-#### Maintenance
-```bash
-cca update             # Update cca and refresh configured projects
-cca update --local     # Refresh configured projects from local CCA_SOURCE
-cca uninstall          # Remove cca from system
-cca version            # Show version and commit info
-cca help               # Show help
-```
+Supports quick switching between different role combinations. Switching automatically refreshes `CLAUDE.md` and `AGENTS.md`.
 
-#### What `cca add` does:
-1. Registers project in `~/.config/cca/installations`
-2. Configures Codex permissions in `~/.codex/config.toml`:
-   - `trust_level = "trusted"`
-   - `approval_policy = "never"`
-   - `sandbox_mode = "full-auto"`
+- **List Presets**:
+  ```bash
+  cca roles list
+  ```
+- **Switch to Trio Mode** (Claude + Codex + Gemini):
+  ```bash
+  cca roles trio
+  ```
+  *Scenario*: Codex executes all operations directly (no OpenCode).
+- **Switch to Default Mode** (Claude + Codex + OpenCode + Gemini):
+  ```bash
+  cca roles default
+  ```
+  *Scenario*: Standard **CXGO** combination, suitable for complex project development.
+
+#### 3. Other Common Commands
+
+| Command | Description |
+| :--- | :--- |
+| `cca update` | Update cca core components and global skill definitions. |
+| `cca refresh` | Force refresh configuration (e.g., `CLAUDE.md`) after manually modifying `roles.json`. |
+| `cca version` | Show version information. |
+| `cca delete` | Remove AutoFlow config from a project. |
 
 ### Slash Commands (In-Session)
 
@@ -203,6 +216,26 @@ cca add .
 /auto implement user authentication system
 # Creates plan with dual-design → autoloop triggers execution
 ```
+
+## 🧠 Gemini Large Codebase Analysis
+
+Leveraging the 1 million+ token context window of Gemini 1.5 Pro/Flash, CCA integrates dedicated large-scale code analysis capabilities.
+
+**Use Cases**:
+- Reading more than 5 files or analyzing entire directory structures.
+- Analyzing project architecture, dependencies, or suggesting refactoring.
+- Answering macro-level questions like "What is this project?" or "Explain the auth logic".
+
+**Advantages**:
+- **Massive Context**: Can ingest the core files of an entire repository at once, avoiding the "keyhole view" of standard models.
+- **Macro Perspective**: Excels at cross-file dependencies and system-level design.
+
+**How to Use**:
+- Explicitly: Use the `gask` command
+  ```bash
+  gask "Please read the src directory and analyze the current routing architecture"
+  ```
+- Role Routing: If `codebase_explorer="gemini"` is configured (default), Claude will automatically route large-scale analysis tasks to Gemini.
 
 ## 🎭 Role Configuration
 
