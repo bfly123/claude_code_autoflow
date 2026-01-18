@@ -51,6 +51,26 @@ WezTerm  →  ccb (Claude Code Bridge)  →  cca (Claude Code AutoFlow)
 | **自动化** | `autoloop` | 后台守护进程，实现持续的上下文感知执行。 |
 | **状态管理** | SSOT | 使用 `state.json` 作为任务状态的唯一数据源。 |
 
+## 🧠 Gemini 大代码分析
+
+得益于 Gemini 1.5 Pro/Flash 拥有的 100万+ Token 上下文窗口，项目集成了专门的大代码分析能力。
+
+**适用场景**：
+- 需要阅读超过 5 个文件或整个目录结构时。
+- 进行项目架构分析、依赖梳理、重构建议时。
+- "这是什么项目？"、"梳理一下鉴权逻辑" 等宏观问题。
+
+**优势**：
+- **超长上下文**：能够一次性容纳整个代码库的核心文件，避免 Codex 的"管中窥豹"。
+- **宏观视角**：擅长处理跨文件依赖和系统级设计问题。
+
+**如何使用**：
+- 显式调用：使用 `gask` 命令
+  ```bash
+  gask "请阅读 src 目录，分析当前的路由架构设计"
+  ```
+- 角色路由：如果配置了 `codebase_explorer="gemini"`（默认），Claude 也会在遇到大范围分析任务时自动路由给 Gemini。
+
 ## 🎭 角色配置（适用于所有任务）
 
 CCA 支持为不同工作分配不同模型角色。
@@ -118,16 +138,49 @@ cd claude_code_autoflow
 ## 📖 使用指南
 
 ### CLI 管理
+
 通过 `cca` 命令行工具管理项目的自动化权限。
+
+#### 1. 初始化项目 (`cca add`)
+
+```bash
+cca add .
+```
+**功能**：初始化当前项目的 AutoFlow 环境。
+**生成文件**：
+- **.claude/**: 包含项目专用的 AutoFlow skills 和 commands。
+- **.autoflow/**: 存放 `roles.json` 角色配置文件。
+- **CLAUDE.md**: 基于角色配置动态生成的 Prompt 策略和路由规则。
+- **AGENTS.md**: (当使用 OpenCode 时) 包含针对 Codex 的监督策略。
+
+#### 2. 角色预设切换 (`cca roles`)
+
+支持快速切换不同的角色组合，切换后会自动刷新 `CLAUDE.md` 和 `AGENTS.md`。
+
+- **列出预设**：
+  ```bash
+  cca roles list
+  ```
+- **切换到 Trio 模式** (Claude + Codex + Gemini)：
+  ```bash
+  cca roles trio
+  ```
+  *适用场景*：不需要 OpenCode 介入，由 Codex 直接执行所有操作。
+- **切换到 Default 模式** (Claude + Codex + OpenCode + Gemini)：
+  ```bash
+  cca roles default
+  ```
+  *适用场景*：标准 **CXGO** 组合，适合复杂项目开发。
+
+#### 3. 其他常用命令
 
 | 命令 | 说明 |
 | :--- | :--- |
-| `cca add .` | 为当前目录配置 Codex 自动化权限。 |
 | `cca update` | 更新 `cca` 核心组件及全局 Skills 定义。 |
-| `cca refresh` | 当修改角色后 需要refresh一下提示词工程 |
+| `cca refresh` | 当手动修改 `roles.json` 后，强制刷新 `CLAUDE.md` 等配置。 |
 | `cca version` | 显示版本信息。 |
 
-## 📄 许可协议
+### 许可协议
 
 本项目采用 [AGPL-3.0](LICENSE) 许可证。
 
