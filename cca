@@ -79,6 +79,9 @@ Examples:
   cca add .                  # Configure current project
   cca add ~/myproject        # Configure a project
   cca delete .               # Remove config from current project
+  cca roles list             # List available role presets
+  cca roles trio             # Switch to trio preset (cc+cx+ge)
+  cca roles default          # Switch to default preset (cc+cx+oc+ge)
   cca update                 # Update cca and refresh configured projects
   cca update --local         # Refresh configured projects from current CCA_SOURCE
   cca update --no-reexec     # Do not re-exec into the updated cca
@@ -1035,24 +1038,35 @@ ensure_project_agents_md() {
     local project_root="$1"
     local file="$project_root/AGENTS.md"
 
-    # Only needed when executor includes opencode (codex+opencode / opencode).
+    # Only needed when any role requires delegation to opencode/gemini.
     local roles_file="$project_root/.autoflow/roles.json"
-    local executor=""
+    local needs_agents="0"
     if [[ -f "$roles_file" ]]; then
-        executor="$(python3 - "$roles_file" <<'PY'
+        needs_agents="$(python3 - "$roles_file" <<'PY'
 import json,sys
 from pathlib import Path
 p=Path(sys.argv[1])
+def has_delegate_value(val):
+    if isinstance(val, str):
+        v = val.strip().lower()
+        return ("opencode" in v) or ("gemini" in v)
+    if isinstance(val, list):
+        return any(has_delegate_value(v) for v in val)
+    return False
 try:
     obj=json.loads(p.read_text(encoding="utf-8"))
     if isinstance(obj, dict):
-        print((obj.get("executor","") or "").lower())
+        for k, v in obj.items():
+            if has_delegate_value(v):
+                print("1")
+                raise SystemExit(0)
 except Exception:
     pass
+print("0")
 PY
 )"
     fi
-    if [[ "$executor" != *"opencode"* ]]; then
+    if [[ "$needs_agents" != "1" ]]; then
         return 0
     fi
 
@@ -1072,27 +1086,65 @@ PY
         return 0
     fi
 
-	    cat > "$file" <<'MD'
-## Codex Supervisor Policy (executor=codex+opencode)
+    # Generate AGENTS.md content dynamically based on roles.json
+    python3 - "$roles_file" "$file" <<'PY'
+import json, sys
+from pathlib import Path
 
-When `executor=codex+opencode`, Codex is the supervisor and must decide what to delegate:
+roles_file = Path(sys.argv[1])
+output_file = Path(sys.argv[2])
 
-Delegate to OpenCode ONLY when:
-1) Repo-changing work is required (apply patches, write files, repo-mutating commands), OR
-2) The task is simple but would be token-heavy for Codex (large mechanical edits, repetitive changes, big scaffolds).
+try:
+    roles = json.loads(roles_file.read_text(encoding="utf-8"))
+except:
+    roles = {}
 
-Otherwise, Codex should do the work itself (read/search/analyze/plan/review) and keep outputs compact.
+executor = str(roles.get("executor", "codex")).strip()
+has_opencode = "opencode" in executor.lower()
+has_gemini = any("gemini" in str(v).lower() for v in roles.values())
 
-Ask OpenCode to return:
-- `changedFiles`
-- `diffSummary`
-- `commands` (include exit codes)
-- `notes`
+lines = []
 
-Constraints:
-- Do NOT paste long logs; summarize and include only what is needed to verify correctness.
-- Prefer short diffs summaries; list exact file paths changed.
-MD
+# OpenCode section (if applicable)
+if has_opencode:
+    lines.append(f"## Codex Supervisor Policy (executor={executor})")
+    lines.append("")
+    lines.append(f"When `executor={executor}`, Codex is the supervisor and must decide what to delegate:")
+    lines.append("")
+    lines.append("Delegate to OpenCode ONLY when:")
+    lines.append("1) Repo-changing work is required (apply patches, write files, repo-mutating commands), OR")
+    lines.append("2) The task is simple but would be token-heavy for Codex (large mechanical edits, repetitive changes, big scaffolds).")
+    lines.append("")
+    lines.append("Otherwise, Codex should do the work itself (read/search/analyze/plan/review) and keep outputs compact.")
+    lines.append("")
+    lines.append("Ask OpenCode to return:")
+    lines.append("- `changedFiles`")
+    lines.append("- `diffSummary`")
+    lines.append("- `commands` (include exit codes)")
+    lines.append("- `notes`")
+    lines.append("")
+    lines.append("Constraints:")
+    lines.append("- Do NOT paste long logs; summarize and include only what is needed to verify correctness.")
+    lines.append("- Prefer short diff summaries; list exact file paths changed.")
+    lines.append("")
+
+# Gemini section (if applicable)
+if has_gemini:
+    lines.append("## Gemini Delegation (Large Code Analysis)")
+    lines.append("")
+    lines.append("When to delegate to Gemini via gask:")
+    lines.append("1) Large codebase analysis (>5 files or >1000 lines total)")
+    lines.append("2) Project structure understanding")
+    lines.append("3) Architecture analysis and dependency mapping")
+    lines.append("4) Cross-file pattern recognition")
+    lines.append("")
+    lines.append("Ask Gemini to return:")
+    lines.append("- `summary`: High-level overview")
+    lines.append("- `structure`: Key components and relationships")
+    lines.append("- `insights`: Design patterns and recommendations")
+
+output_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
 
     log_info "Created project AGENTS.md: $file"
 }
@@ -1561,6 +1613,19 @@ def executor_rule(executor_value: str) -> str:
         return f"{v} → MUST use cask (Codex will delegate to OpenCode via oask)"
     return "use " + delegate_hint(v)
 
+def needs_agents_md(roles: dict) -> bool:
+    def has_delegate_value(val) -> bool:
+        if isinstance(val, str):
+            v = val.strip().lower()
+            return ("opencode" in v) or ("gemini" in v)
+        if isinstance(val, list):
+            return any(has_delegate_value(v) for v in val)
+        return False
+    for v in roles.values():
+        if has_delegate_value(v):
+            return True
+    return False
+
 roles = read_roles()
 executor = str(roles.get("executor", DEFAULT["executor"]))
 searcher = str(roles.get("searcher", DEFAULT["searcher"]))
@@ -1597,6 +1662,7 @@ lines.append(f"- write/edit files or file-changing bash → executor: {executor_
 lines.append(f"- web search (WebSearch/WebFetch) → web_searcher: {('direct' if delegate_hint(web_searcher)=='direct' else 'use ' + delegate_hint(web_searcher))}")
 if repo_search_enforced:
     lines.append(f"- repo search (Grep/Glob or Bash rg/grep/git grep) → repo_searcher: {('direct' if delegate_hint(repo_searcher)=='direct' else 'use ' + delegate_hint(repo_searcher))}")
+lines.append("- large code analysis (>5 files) → use gask \"analyze codebase...\"")
 lines.append(f"- git mutate (add/commit/push/merge/rebase/reset) → git_manager: {('direct' if delegate_hint(git_manager)=='direct' else 'use ' + delegate_hint(git_manager))}")
 if repo_search_enforced and delegate_hint(repo_searcher) != "direct":
     lines.append("- read-only is OK directly: Read, and git status/log/diff/show (Grep/Glob is delegated)")
@@ -1638,25 +1704,55 @@ def upsert_policy(path: Path, block: str) -> None:
 
 upsert_policy(claude_md, policy_block)
 
-need_agents = "opencode" in (executor or "").lower()
-if need_agents:
-    agents_md.write_text(
-        "## Codex Supervisor Policy (executor=codex+opencode)\n\n"
-        "When `executor=codex+opencode`, Codex is the supervisor and must decide what to delegate:\n\n"
-        "Delegate to OpenCode ONLY when:\n"
-        "1) Repo-changing work is required (apply patches, write files, repo-mutating commands), OR\n"
-        "2) The task is simple but would be token-heavy for Codex (large mechanical edits, repetitive changes, big scaffolds).\n\n"
-        "Otherwise, Codex should do the work itself (read/search/analyze/plan/review) and keep outputs compact.\n\n"
-        "Ask OpenCode to return:\n"
-        "- `changedFiles`\n"
-        "- `diffSummary`\n"
-        "- `commands` (include exit codes)\n"
-        "- `notes`\n\n"
-        "Constraints:\n"
-        "- Do NOT paste long logs; summarize and include only what is needed to verify correctness.\n"
-        "- Prefer short diff summaries; list exact file paths changed.\n",
-        encoding="utf-8",
-    )
+if needs_agents_md(roles):
+    # Generate AGENTS.md dynamically based on roles
+    agent_lines = []
+    has_opencode = "opencode" in executor.lower()
+    has_gemini = any("gemini" in str(v).lower() for v in roles.values())
+
+    # OpenCode section (if applicable)
+    if has_opencode:
+        agent_lines.extend([
+            f"## Codex Supervisor Policy (executor={executor})",
+            "",
+            f"When `executor={executor}`, Codex is the supervisor and must decide what to delegate:",
+            "",
+            "Delegate to OpenCode ONLY when:",
+            "1) Repo-changing work is required (apply patches, write files, repo-mutating commands), OR",
+            "2) The task is simple but would be token-heavy for Codex (large mechanical edits, repetitive changes, big scaffolds).",
+            "",
+            "Otherwise, Codex should do the work itself (read/search/analyze/plan/review) and keep outputs compact.",
+            "",
+            "Ask OpenCode to return:",
+            "- `changedFiles`",
+            "- `diffSummary`",
+            "- `commands` (include exit codes)",
+            "- `notes`",
+            "",
+            "Constraints:",
+            "- Do NOT paste long logs; summarize and include only what is needed to verify correctness.",
+            "- Prefer short diff summaries; list exact file paths changed.",
+            "",
+        ])
+
+    # Gemini section (if applicable)
+    if has_gemini:
+        agent_lines.extend([
+            "## Gemini Delegation (Large Code Analysis)",
+            "",
+            "When to delegate to Gemini via gask:",
+            "1) Large codebase analysis (>5 files or >1000 lines total)",
+            "2) Project structure understanding",
+            "3) Architecture analysis and dependency mapping",
+            "4) Cross-file pattern recognition",
+            "",
+            "Ask Gemini to return:",
+            "- `summary`: High-level overview",
+            "- `structure`: Key components and relationships",
+            "- `insights`: Design patterns and recommendations",
+        ])
+
+    agents_md.write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
 PY
 
     log_info "Refreshed: $target/CLAUDE.md"
@@ -2049,6 +2145,8 @@ cmd_roles() {
             # Copy template
             cp "$template_file" "$roles_file"
             log_info "Switched to '$preset' preset: $roles_file"
+            # Refresh CLAUDE.md and AGENTS.md based on new roles
+            cmd_refresh "$project_root"
             # Show what was set
             cat "$roles_file"
             ;;
