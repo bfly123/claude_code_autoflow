@@ -155,6 +155,40 @@ Supports quick switching between different role combinations. Switching automati
   ```
   *Scenario*: Standard **CXGO** combination, suitable for complex project development.
 
+#### Mode Diagrams
+
+**1. Default (CXGO) Mode**
+*Claude manages, Codex supervises and gateways, OpenCode handles the heavy lifting, Gemini provides knowledge.*
+
+```mermaid
+flowchart TD
+    subgraph "Default (CXGO) Mode"
+        C[Claude\n(Manager)] -->|Delegate| CX[Codex\n(Supervisor)]
+        C -->|Deep Analysis| G[Gemini\n(Explorer)]
+        
+        CX -->|oask| OC[OpenCode\n(Executor)]
+        OC -->|File Ops| FS[(File System)]
+        CX -->|Review| OC
+        
+        G -->|Web/Docs| W((Internet))
+    end
+```
+
+**2. Trio Mode**
+*Simplified mode without OpenCode. Codex executes operations directly.*
+
+```mermaid
+flowchart TD
+    subgraph "Trio Mode"
+        C[Claude\n(Manager)] -->|Delegate| CX[Codex\n(Executor)]
+        C -->|Deep Analysis| G[Gemini\n(Explorer)]
+        
+        CX -->|File Ops| FS[(File System)]
+        
+        G -->|Web/Docs| W((Internet))
+    end
+```
+
 #### 3. Other Common Commands
 
 | Command | Description |

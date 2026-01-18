@@ -172,6 +172,40 @@ cca add .
   ```
   *适用场景*：标准 **CXGO** 组合，适合复杂项目开发。
 
+#### 角色模式示意图
+
+**1. Default (CXGO) 模式**
+*Claude 负责总控，Codex 作为执行网关和监督者，OpenCode 负责具体脏活累活，Gemini 提供知识支持。*
+
+```mermaid
+flowchart TD
+    subgraph "Default (CXGO) Mode"
+        C[Claude\n(Manager)] -->|Delegate| CX[Codex\n(Supervisor)]
+        C -->|Deep Analysis| G[Gemini\n(Explorer)]
+        
+        CX -->|oask| OC[OpenCode\n(Executor)]
+        OC -->|File Ops| FS[(File System)]
+        CX -->|Review| OC
+        
+        G -->|Web/Docs| W((Internet))
+    end
+```
+
+**2. Trio 模式**
+*简化模式，不需要 OpenCode，Codex 直接执行所有操作。*
+
+```mermaid
+flowchart TD
+    subgraph "Trio Mode"
+        C[Claude\n(Manager)] -->|Delegate| CX[Codex\n(Executor)]
+        C -->|Deep Analysis| G[Gemini\n(Explorer)]
+        
+        CX -->|File Ops| FS[(File System)]
+        
+        G -->|Web/Docs| W((Internet))
+    end
+```
+
 #### 3. 其他常用命令
 
 | 命令 | 说明 |
