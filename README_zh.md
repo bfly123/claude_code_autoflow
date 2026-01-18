@@ -179,15 +179,15 @@ cca add .
 
 ```mermaid
 flowchart TD
-    subgraph "Default (CXGO) Mode"
-        C["Claude<br/>(Manager)"] -->|Delegate| CX["Codex<br/>(Supervisor)"]
-        C -->|Deep Analysis| G["Gemini<br/>(Explorer)"]
+    subgraph "Default (CXGO) 模式"
+        C["Claude<br/>(总控)"] -->|委托| CX["Codex<br/>(监督/网关)"]
+        C -->|深度分析| G["Gemini<br/>(探索者)"]
         
-        CX -->|oask| OC["OpenCode<br/>(Executor)"]
-        OC -->|File Ops| FS[("File System")]
-        CX -->|Review| OC
+        CX -->|oask| OC["OpenCode<br/>(执行者)"]
+        OC -->|文件操作| FS[("文件系统")]
+        CX -->|审查| OC
         
-        G -->|Web/Docs| W(("Internet"))
+        G -->|联网/文档| W(("互联网"))
     end
 ```
 
@@ -196,13 +196,13 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph "Trio Mode"
-        C["Claude<br/>(Manager)"] -->|Delegate| CX["Codex<br/>(Executor)"]
-        C -->|Deep Analysis| G["Gemini<br/>(Explorer)"]
+    subgraph "Trio 模式"
+        C["Claude<br/>(总控)"] -->|委托| CX["Codex<br/>(执行者)"]
+        C -->|深度分析| G["Gemini<br/>(探索者)"]
         
-        CX -->|File Ops| FS[("File System")]
+        CX -->|文件操作| FS[("文件系统")]
         
-        G -->|Web/Docs| W(("Internet"))
+        G -->|联网/文档| W(("互联网"))
     end
 ```
 
