@@ -180,14 +180,14 @@ cca add .
 ```mermaid
 flowchart TD
     subgraph "Default (CXGO) Mode"
-        C[Claude\n(Manager)] -->|Delegate| CX[Codex\n(Supervisor)]
-        C -->|Deep Analysis| G[Gemini\n(Explorer)]
+        C["Claude<br/>(Manager)"] -->|Delegate| CX["Codex<br/>(Supervisor)"]
+        C -->|Deep Analysis| G["Gemini<br/>(Explorer)"]
         
-        CX -->|oask| OC[OpenCode\n(Executor)]
-        OC -->|File Ops| FS[(File System)]
+        CX -->|oask| OC["OpenCode<br/>(Executor)"]
+        OC -->|File Ops| FS[("File System")]
         CX -->|Review| OC
         
-        G -->|Web/Docs| W((Internet))
+        G -->|Web/Docs| W(("Internet"))
     end
 ```
 
@@ -197,12 +197,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph "Trio Mode"
-        C[Claude\n(Manager)] -->|Delegate| CX[Codex\n(Executor)]
-        C -->|Deep Analysis| G[Gemini\n(Explorer)]
+        C["Claude<br/>(Manager)"] -->|Delegate| CX["Codex<br/>(Executor)"]
+        C -->|Deep Analysis| G["Gemini<br/>(Explorer)"]
         
-        CX -->|File Ops| FS[(File System)]
+        CX -->|File Ops| FS[("File System")]
         
-        G -->|Web/Docs| W((Internet))
+        G -->|Web/Docs| W(("Internet"))
     end
 ```
 
