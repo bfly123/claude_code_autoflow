@@ -9,5 +9,9 @@
   "web_searcher": "gemini",
   "repo_searcher": "codex",
   "repo_search_enforced": true,
-  "git_manager": "codex"
+  "git_manager": "codex",
+  "_meta": {
+    "name": "default",
+    "preset": "default"
+  }
 }

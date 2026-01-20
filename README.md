@@ -155,6 +155,23 @@ Supports quick switching between different role combinations. Switching automati
   ```
   *Scenario*: Standard **CXGO** combination, suitable for complex project development.
 
+- **Add Custom Role Preset**:
+  ```bash
+  cca addroles my-roles.json
+  ```
+  *Add your own custom role configuration to the system. The JSON file must include a `_meta.name` field:*
+  ```json
+  {
+    "executor": "codex",
+    "web_searcher": "gemini",
+    "_meta": {
+      "name": "my-preset",
+      "description": "My custom roles"
+    }
+  }
+  ```
+  After adding, use `cca roles my-preset` to switch to it in any project.
+
 #### Mode Diagrams
 
 **1. Default (CXGO) Mode**
@@ -279,6 +296,7 @@ Role configuration controls which model/tool is used for each workflow role.
 - Project: `<repo>/.autoflow/roles.json`
 
 Config is project-local only (no inheritance from parent directories).
+Extra keys are allowed and ignored; `_meta.preset` (e.g. `default`, `trio`) records which `cca roles <preset>` it came from.
 
 ### Roles and Allowed Values
 Roles are configured in `<repo>/.autoflow/roles.json`:

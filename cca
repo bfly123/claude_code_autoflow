@@ -5,7 +5,7 @@
 set -euo pipefail
 shopt -s nullglob
 
-VERSION="1.9.1"
+VERSION="1.9.2"
 GIT_COMMIT=""
 GIT_DATE=""
 
@@ -67,6 +67,7 @@ Commands:
   update [--local] [--no-reexec] [-a]  Update cca and refresh projects
   list           Show configured projects
   roles <cmd>    Manage role presets (list/use/show)
+  addroles <file>                      Add custom roles preset (reads name from _meta.name)
   uninstall      Remove cca from system
 
   version        Show version and commit info
@@ -82,6 +83,7 @@ Examples:
   cca roles list             # List available role presets
   cca roles trio             # Switch to trio preset (cc+cx+ge)
   cca roles default          # Switch to default preset (cc+cx+oc+ge)
+  cca addroles my-roles.json # Add custom roles preset to system
   cca update                 # Update cca and refresh configured projects
   cca update --local         # Refresh configured projects from current CCA_SOURCE
   cca update --no-reexec     # Do not re-exec into the updated cca
@@ -2144,6 +2146,27 @@ cmd_roles() {
             mkdir -p "$autoflow_dir"
             # Copy template
             cp "$template_file" "$roles_file"
+            # Stamp preset name for visibility/debugging (safe: extra keys are allowed).
+            python3 - "$roles_file" "$preset" <<'PY' || true
+import json
+import sys
+from pathlib import Path
+
+roles_file = Path(sys.argv[1])
+preset = sys.argv[2]
+
+obj = json.loads(roles_file.read_text(encoding="utf-8"))
+if not isinstance(obj, dict):
+    raise SystemExit(0)
+
+meta = obj.get("_meta")
+if not isinstance(meta, dict):
+    meta = {}
+meta["preset"] = preset
+obj["_meta"] = meta
+
+roles_file.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
             log_info "Switched to '$preset' preset: $roles_file"
             # Refresh CLAUDE.md and AGENTS.md based on new roles
             cmd_refresh "$project_root"
@@ -2177,6 +2200,169 @@ ROLES_HELP
             cmd_roles use "$subcmd"
             ;;
     esac
+}
+
+# Command: addroles
+cmd_addroles() {
+    local roles_file=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                cat << 'ADDROLES_HELP'
+cca addroles - Add custom roles preset to system
+
+Usage:
+  cca addroles <roles.json>
+
+Arguments:
+  <roles.json>     Path to custom roles configuration file
+                   Must contain "_meta.name" field with preset name
+
+Example roles.json:
+  {
+    "executor": "codex",
+    "web_searcher": "gemini",
+    "_meta": {
+      "name": "my-preset",
+      "description": "My custom roles"
+    }
+  }
+
+Examples:
+  cca addroles my-roles.json    # Reads preset name from _meta.name
+
+The preset will be available via:
+  cca roles list      # List all presets including new one
+  cca roles <preset>  # Switch to the preset
+ADDROLES_HELP
+                exit 0
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                log_error "Usage: cca addroles <roles.json>"
+                exit 1
+                ;;
+            *)
+                if [[ -z "$roles_file" ]]; then
+                    roles_file="$1"
+                else
+                    log_error "Too many arguments"
+                    log_error "Usage: cca addroles <roles.json>"
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Validate roles_file argument
+    if [[ -z "$roles_file" ]]; then
+        log_error "Usage: cca addroles <roles.json>"
+        exit 1
+    fi
+
+    # Resolve to absolute path
+    if [[ "$roles_file" != /* ]]; then
+        roles_file="$(pwd)/$roles_file"
+    fi
+
+    # Check if file exists
+    if [[ ! -f "$roles_file" ]]; then
+        log_error "File not found: $roles_file"
+        exit 1
+    fi
+
+    # Validate JSON format and extract preset name
+    local preset_name
+    preset_name="$(python3 -c "
+import json
+import sys
+
+try:
+    with open('$roles_file', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict):
+        print('ERROR: JSON root must be an object', file=sys.stderr)
+        sys.exit(1)
+
+    # Extract preset name from _meta.name
+    meta = data.get('_meta', {})
+    name = meta.get('name', '')
+
+    if not name:
+        print('ERROR: Missing required field: _meta.name', file=sys.stderr)
+        print('Please add a name field to your roles.json:', file=sys.stderr)
+        print('  \"_meta\": { \"name\": \"your-preset-name\" }', file=sys.stderr)
+        sys.exit(1)
+
+    print(name)
+
+except json.JSONDecodeError as e:
+    print(f'ERROR: Invalid JSON format: {e}', file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f'ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>&1)"
+
+    if [[ $? -ne 0 ]]; then
+        log_error "$preset_name"
+        exit 1
+    fi
+
+    # Validate preset name (alphanumeric, dash, underscore only)
+    if ! [[ "$preset_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        log_error "Invalid preset name in _meta.name: $preset_name"
+        log_error "Preset name must contain only alphanumeric characters, dashes, and underscores"
+        exit 1
+    fi
+
+    # Determine target file path
+    local templates_dir="$CCA_SOURCE/claude_source/templates"
+    local target_file
+    if [[ "$preset_name" == "default" ]]; then
+        target_file="$templates_dir/roles.json"
+    else
+        target_file="$templates_dir/roles-${preset_name}.json"
+    fi
+
+    # Check if preset already exists
+    if [[ -f "$target_file" ]]; then
+        log_warn "Preset '$preset_name' already exists: $target_file"
+        if [[ -t 0 ]]; then
+            local overwrite
+            read -r -p "Overwrite? [y/N] " overwrite
+            if [[ ! "$overwrite" =~ ^[Yy] ]]; then
+                log_info "Aborted."
+                exit 0
+            fi
+        else
+            log_error "Preset already exists. Use interactive mode to overwrite."
+            exit 1
+        fi
+    fi
+
+    # Ensure templates directory exists
+    mkdir -p "$templates_dir"
+
+    # Copy the file
+    if cp "$roles_file" "$target_file"; then
+        log_info "Added preset '$preset_name': $target_file"
+
+        # Show what was added
+        echo ""
+        log_blue "Preset content:"
+        cat "$target_file"
+
+        echo ""
+        log_info "You can now use: cca roles $preset_name"
+    else
+        log_error "Failed to copy file to: $target_file"
+        exit 1
+    fi
 }
 
 # Command: list
@@ -2305,6 +2491,9 @@ case "${1:-}" in
         ;;
     roles)
         cmd_roles "${@:2}"
+        ;;
+    addroles)
+        cmd_addroles "${@:2}"
         ;;
     uninstall)
         cmd_uninstall
